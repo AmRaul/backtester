@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  backtester:
+    build: .
+    container_name: crypto_backtester
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./config.json:/app/config.json
+      - ./config_examples.json:/app/config_examples.json
+      - ./config_api_examples.json:/app/config_api_examples.json
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - backtester_network
+    command: ["python", "main.py", "--help"]
+
+  backtester-web:
+    build: 
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: backtester_web
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FLASK_ENV=production
+    networks:
+      - backtester_network
+    depends_on:
+      - backtester
+
+  # Redis для кэширования (опционально)
+  redis:
+    image: redis:7-alpine
+    container_name: backtester_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backtester_network
+    command: redis-server --appendonly yes
+
+networks:
+  backtester_network:
+    driver: bridge
+
+volumes:
+  redis_data: 
