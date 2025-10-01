@@ -1,0 +1,701 @@
+{% extends "base.html" %}
+
+{% block title %}Конфигурация стратегии - Crypto Backtester{% endblock %}
+
+{% block content %}
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-cog me-2"></i>
+                    Настройка стратегии бэктестирования
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Навигация по вкладкам -->
+                <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="basic-tab" data-bs-toggle="tab" data-bs-target="#basic" type="button" role="tab">
+                            <i class="fas fa-sliders-h me-2"></i>Основные параметры
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="entry-tab" data-bs-toggle="tab" data-bs-target="#entry" type="button" role="tab">
+                            <i class="fas fa-sign-in-alt me-2"></i>Условия входа
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="dca-tab" data-bs-toggle="tab" data-bs-target="#dca" type="button" role="tab">
+                            <i class="fas fa-layer-group me-2"></i>DCA настройки
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="risk-tab" data-bs-toggle="tab" data-bs-target="#risk" type="button" role="tab">
+                            <i class="fas fa-shield-alt me-2"></i>Риск-менеджмент
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="data-tab" data-bs-toggle="tab" data-bs-target="#data" type="button" role="tab">
+                            <i class="fas fa-database me-2"></i>Источник данных
+                        </button>
+                    </li>
+                </ul>
+
+                <!-- Содержимое вкладок -->
+                <div class="tab-content" id="configTabsContent">
+                    <!-- Основные параметры -->
+                    <div class="tab-pane fade show active" id="basic" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="startBalance" class="form-label">Начальный баланс (USD)</label>
+                                    <input type="number" class="form-control" id="startBalance" value="1000" min="1">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="leverage" class="form-label">Кредитное плечо</label>
+                                    <select class="form-select" id="leverage">
+                                        <option value="1">1x (без плеча)</option>
+                                        <option value="2">2x</option>
+                                        <option value="3">3x</option>
+                                        <option value="5">5x</option>
+                                        <option value="10">10x</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="orderType" class="form-label">Тип позиции</label>
+                                    <select class="form-select" id="orderType">
+                                        <option value="long">Long (покупка)</option>
+                                        <option value="short">Short (продажа)</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="symbol" class="form-label">Торговая пара</label>
+                                    <input type="text" class="form-control" id="symbol" value="BTCUSDT" placeholder="BTCUSDT">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Условия входа -->
+                    <div class="tab-pane fade" id="entry" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="entryTrigger" class="form-label">Триггер входа</label>
+                                    <select class="form-select" id="entryTrigger">
+                                        <option value="price_drop">Падение цены</option>
+                                        <option value="price_rise">Рост цены</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="entryPercent" class="form-label">Процент изменения для входа</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="entryPercent" value="2" min="0.1" step="0.1">
+                                        <span class="input-group-text">%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="firstOrderAmount" class="form-label">Размер первого ордера</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="firstOrderAmount" value="10" min="1" max="100">
+                                        <span class="input-group-text">% от баланса</span>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="firstOrderFixed" class="form-label">Фиксированная сумма (USD)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text">$</span>
+                                        <input type="number" class="form-control" id="firstOrderFixed" placeholder="Оставьте пустым для %">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- DCA настройки -->
+                    <div class="tab-pane fade" id="dca" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="dcaEnabled" checked>
+                                    <label class="form-check-label" for="dcaEnabled">
+                                        Включить DCA (усреднение позиций)
+                                    </label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="maxDcaOrders" class="form-label">Максимум DCA ордеров</label>
+                                    <input type="number" class="form-control" id="maxDcaOrders" value="5" min="1" max="20">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="dcaStepPercent" class="form-label">Шаг цены для DCA</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="dcaStepPercent" value="1.5" min="0.1" step="0.1">
+                                        <span class="input-group-text">%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="martingaleEnabled" checked>
+                                    <label class="form-check-label" for="martingaleEnabled">
+                                        Включить Мартингейл
+                                    </label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="martingaleMultiplier" class="form-label">Мультипликатор Мартингейл</label>
+                                    <input type="number" class="form-control" id="martingaleMultiplier" value="2.0" min="1.0" step="0.1">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="martingaleProgression" class="form-label">Тип прогрессии</label>
+                                    <select class="form-select" id="martingaleProgression">
+                                        <option value="exponential">Экспоненциальная</option>
+                                        <option value="linear">Линейная</option>
+                                        <option value="fibonacci">Фибоначчи</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Риск-менеджмент -->
+                    <div class="tab-pane fade" id="risk" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Take Profit</h6>
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="takeProfitEnabled" checked>
+                                    <label class="form-check-label" for="takeProfitEnabled">
+                                        Включить Take Profit
+                                    </label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="takeProfitPercent" class="form-label">Процент прибыли</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="takeProfitPercent" value="5" min="0.1" step="0.1">
+                                        <span class="input-group-text">%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Stop Loss</h6>
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="stopLossEnabled" checked>
+                                    <label class="form-check-label" for="stopLossEnabled">
+                                        Включить Stop Loss
+                                    </label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="stopLossPercent" class="form-label">Процент убытка</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="stopLossPercent" value="10" min="0.1" step="0.1">
+                                        <span class="input-group-text">%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="maxDrawdown" class="form-label">Максимальная просадка</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="maxDrawdown" value="20" min="1" max="100">
+                                        <span class="input-group-text">%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="maxPositions" class="form-label">Максимум открытых позиций</label>
+                                    <input type="number" class="form-control" id="maxPositions" value="1" min="1" max="10">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Источник данных -->
+                    <div class="tab-pane fade" id="data" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Источник данных</h6>
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="radio" name="dataSource" id="dataCsv" value="csv" checked>
+                                    <label class="form-check-label" for="dataCsv">
+                                        CSV файл
+                                    </label>
+                                </div>
+                                <div class="mb-3" id="csvFileGroup">
+                                    <label for="csvFile" class="form-label">Путь к CSV файлу</label>
+                                    <select class="form-select" id="csvFile">
+                                        <option value="data/BTCUSDT_15m.csv">data/BTCUSDT_15m.csv</option>
+                                        <option value="data/ETHUSDT_15m.csv">data/ETHUSDT_15m.csv</option>
+                                        <option value="data/XRPUSDT_15m.csv">data/XRPUSDT_15m.csv</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input" type="radio" name="dataSource" id="dataApi" value="api">
+                                    <label class="form-check-label" for="dataApi">
+                                        API биржи
+                                    </label>
+                                </div>
+                                <div class="mb-3" id="apiGroup" style="display: none;">
+                                    <label for="exchange" class="form-label">Биржа</label>
+                                    <select class="form-select" id="exchange">
+                                        <option value="binance">Binance</option>
+                                        <option value="okx">OKX</option>
+                                        <option value="bybit">Bybit</option>
+                                        <option value="kucoin">KuCoin</option>
+                                    </select>
+                                    <div class="mt-2">
+                                        <label for="apiSymbol" class="form-label">Символ</label>
+                                        <input type="text" class="form-control" id="apiSymbol" value="BTC/USDT">
+                                    </div>
+                                    <div class="mt-2">
+                                        <label for="timeframe" class="form-label">Таймфрейм</label>
+                                        <select class="form-select" id="timeframe">
+                                            <option value="1m">1 минута</option>
+                                            <option value="5m">5 минут</option>
+                                            <option value="15m" selected>15 минут</option>
+                                            <option value="1h">1 час</option>
+                                            <option value="4h">4 часа</option>
+                                            <option value="1d">1 день</option>
+                                        </select>
+                                    </div>
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="downloadDataFromApi()">
+                                            <i class="fas fa-download me-1"></i>Загрузить данные
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Кнопки действий -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <button type="button" class="btn btn-outline-secondary" onclick="loadPreset('conservative')">
+                                    <i class="fas fa-shield-alt me-2"></i>Консервативная
+                                </button>
+                                <button type="button" class="btn btn-outline-warning" onclick="loadPreset('aggressive')">
+                                    <i class="fas fa-fire me-2"></i>Агрессивная
+                                </button>
+                                <button type="button" class="btn btn-outline-info" onclick="loadPreset('martingale')">
+                                    <i class="fas fa-dice me-2"></i>Мартингейл
+                                </button>
+                            </div>
+                            <div>
+                                <button type="button" class="btn btn-secondary me-2" onclick="resetConfig()">
+                                    <i class="fas fa-undo me-2"></i>Сбросить
+                                </button>
+                                <button type="button" class="btn btn-primary" onclick="runBacktest()">
+                                    <i class="fas fa-play me-2"></i>Запустить бэктест
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для прогресса -->
+<div class="modal fade" id="progressModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-cog fa-spin me-2"></i>
+                    Выполнение бэктеста
+                </h5>
+            </div>
+            <div class="modal-body">
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                </div>
+                <div id="progressText">Инициализация...</div>
+                <div id="progressDetails" class="small text-muted mt-2"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentTaskId = null;
+let progressInterval = null;
+
+// Переключение источника данных
+document.querySelectorAll('input[name="dataSource"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const csvGroup = document.getElementById('csvFileGroup');
+        const apiGroup = document.getElementById('apiGroup');
+        
+        if (this.value === 'csv') {
+            csvGroup.style.display = 'block';
+            apiGroup.style.display = 'none';
+        } else {
+            csvGroup.style.display = 'none';
+            apiGroup.style.display = 'block';
+        }
+    });
+});
+
+// Загрузка пресетов
+function loadPreset(type) {
+    const configs = {
+        conservative: {
+            startBalance: 1000,
+            leverage: 1,
+            orderType: 'long',
+            entryTrigger: 'price_drop',
+            entryPercent: 3,
+            firstOrderAmount: 10,
+            takeProfitEnabled: true,
+            takeProfitPercent: 4,
+            stopLossEnabled: true,
+            stopLossPercent: 15,
+            dcaEnabled: true,
+            maxDcaOrders: 3,
+            martingaleEnabled: false,
+            maxDrawdown: 15
+        },
+        aggressive: {
+            startBalance: 1000,
+            leverage: 2,
+            orderType: 'long',
+            entryTrigger: 'price_drop',
+            entryPercent: 1,
+            firstOrderAmount: 15,
+            takeProfitEnabled: true,
+            takeProfitPercent: 2,
+            stopLossEnabled: true,
+            stopLossPercent: 25,
+            dcaEnabled: true,
+            maxDcaOrders: 5,
+            martingaleEnabled: true,
+            martingaleMultiplier: 2.5,
+            maxDrawdown: 30
+        },
+        martingale: {
+            startBalance: 1000,
+            leverage: 1,
+            orderType: 'long',
+            entryTrigger: 'price_drop',
+            entryPercent: 1,
+            firstOrderAmount: 10,
+            takeProfitEnabled: true,
+            takeProfitPercent: 3,
+            stopLossEnabled: true,
+            stopLossPercent: 20,
+            dcaEnabled: true,
+            maxDcaOrders: 7,
+            martingaleEnabled: true,
+            martingaleMultiplier: 2.0,
+            martingaleProgression: 'exponential',
+            maxDrawdown: 40
+        }
+    };
+    
+    const config = configs[type];
+    if (!config) return;
+    
+    // Применяем конфигурацию к форме
+    Object.keys(config).forEach(key => {
+        const element = document.getElementById(key);
+        if (element) {
+            if (element.type === 'checkbox') {
+                element.checked = config[key];
+            } else {
+                element.value = config[key];
+            }
+        }
+    });
+    
+    // Показываем уведомление
+    showNotification(`Загружена ${type} конфигурация`, 'success');
+}
+
+// Сброс конфигурации
+function resetConfig() {
+    document.getElementById('startBalance').value = 1000;
+    document.getElementById('leverage').value = 1;
+    document.getElementById('orderType').value = 'long';
+    document.getElementById('entryTrigger').value = 'price_drop';
+    document.getElementById('entryPercent').value = 2;
+    document.getElementById('firstOrderAmount').value = 10;
+    document.getElementById('dcaEnabled').checked = true;
+    document.getElementById('maxDcaOrders').value = 5;
+    document.getElementById('martingaleEnabled').checked = true;
+    document.getElementById('martingaleMultiplier').value = 2.0;
+    document.getElementById('takeProfitEnabled').checked = true;
+    document.getElementById('takeProfitPercent').value = 5;
+    document.getElementById('stopLossEnabled').checked = true;
+    document.getElementById('stopLossPercent').value = 10;
+    document.getElementById('maxDrawdown').value = 20;
+    document.getElementById('maxPositions').value = 1;
+    
+    showNotification('Конфигурация сброшена', 'info');
+}
+
+// Загрузка данных с API
+async function downloadDataFromApi() {
+    const exchange = document.getElementById('exchange').value;
+    const symbol = document.getElementById('apiSymbol').value;
+    const timeframe = document.getElementById('timeframe').value;
+    
+    try {
+        showNotification('Загрузка данных...', 'info');
+        
+        const response = await fetch('/api/download-data', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                exchange: exchange,
+                symbol: symbol,
+                timeframe: timeframe,
+                start_date: null,
+                end_date: null
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification(`Данные загружены: ${result.filename}`, 'success');
+            // Обновляем список CSV файлов
+            updateCsvFileList(result.filename);
+        } else {
+            showNotification(`Ошибка: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showNotification(`Ошибка загрузки: ${error.message}`, 'error');
+    }
+}
+
+// Обновление списка CSV файлов
+function updateCsvFileList(filename) {
+    const csvSelect = document.getElementById('csvFile');
+    const option = document.createElement('option');
+    option.value = filename;
+    option.textContent = filename;
+    option.selected = true;
+    csvSelect.appendChild(option);
+}
+
+// Запуск бэктеста
+async function runBacktest() {
+    try {
+        // Собираем конфигурацию из формы
+        const config = {
+            start_balance: parseFloat(document.getElementById('startBalance').value),
+            leverage: parseInt(document.getElementById('leverage').value),
+            order_type: document.getElementById('orderType').value,
+            entry_conditions: {
+                type: 'manual',
+                trigger: document.getElementById('entryTrigger').value,
+                percent: parseFloat(document.getElementById('entryPercent').value)
+            },
+            first_order: {
+                amount_percent: parseFloat(document.getElementById('firstOrderAmount').value),
+                amount_fixed: document.getElementById('firstOrderFixed').value ? parseFloat(document.getElementById('firstOrderFixed').value) : null,
+                risk_percent: null
+            },
+            dca: {
+                enabled: document.getElementById('dcaEnabled').checked,
+                max_orders: parseInt(document.getElementById('maxDcaOrders').value),
+                martingale: {
+                    enabled: document.getElementById('martingaleEnabled').checked,
+                    multiplier: parseFloat(document.getElementById('martingaleMultiplier').value),
+                    progression: document.getElementById('martingaleProgression').value
+                },
+                step_price: {
+                    type: 'fixed_percent',
+                    value: parseFloat(document.getElementById('dcaStepPercent').value),
+                    dynamic_multiplier: 1.0,
+                    atr_multiplier: null
+                }
+            },
+            take_profit: {
+                enabled: document.getElementById('takeProfitEnabled').checked,
+                percent: parseFloat(document.getElementById('takeProfitPercent').value),
+                trailing: {
+                    enabled: false,
+                    activation_percent: 3,
+                    trail_percent: 1
+                }
+            },
+            stop_loss: {
+                enabled: document.getElementById('stopLossEnabled').checked,
+                percent: parseFloat(document.getElementById('stopLossPercent').value),
+                trailing: {
+                    enabled: false,
+                    activation_percent: 2,
+                    trail_percent: 0.5
+                }
+            },
+            risk_management: {
+                max_drawdown_percent: parseFloat(document.getElementById('maxDrawdown').value),
+                max_open_positions: parseInt(document.getElementById('maxPositions').value),
+                daily_loss_limit: null
+            },
+            symbol: document.getElementById('symbol').value,
+            timeframe: document.getElementById('timeframe').value,
+            start_date: null,
+            end_date: null
+        };
+        
+        // Определяем источник данных
+        const dataSource = document.querySelector('input[name="dataSource"]:checked').value;
+        if (dataSource === 'csv') {
+            config.data_source = {
+                type: 'csv',
+                file: document.getElementById('csvFile').value
+            };
+        } else {
+            config.data_source = {
+                type: 'api',
+                api: {
+                    exchange: document.getElementById('exchange').value,
+                    symbol: document.getElementById('apiSymbol').value,
+                    auto_save: true
+                }
+            };
+        }
+        
+        // Запускаем бэктест
+        const response = await fetch('/api/run-backtest', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(config)
+        });
+        
+        const result = await response.json();
+        
+        if (result.task_id) {
+            currentTaskId = result.task_id;
+            showProgressModal();
+            startProgressTracking();
+            showNotification('Бэктест запущен', 'success');
+        } else {
+            showNotification(`Ошибка: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showNotification(`Ошибка: ${error.message}`, 'error');
+    }
+}
+
+// Показ модального окна прогресса
+function showProgressModal() {
+    const modal = new bootstrap.Modal(document.getElementById('progressModal'));
+    modal.show();
+}
+
+// Отслеживание прогресса
+function startProgressTracking() {
+    if (!currentTaskId) return;
+    
+    progressInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/backtest-status/${currentTaskId}`);
+            const status = await response.json();
+            
+            updateProgress(status);
+            
+            if (status.status === 'completed' || status.status === 'error') {
+                clearInterval(progressInterval);
+                if (status.status === 'completed') {
+                    showNotification('Бэктест завершен!', 'success');
+                    setTimeout(() => {
+                        window.location.href = `/results/${currentTaskId}`;
+                    }, 2000);
+                } else {
+                    showNotification(`Ошибка: ${status.error}`, 'error');
+                }
+            }
+        } catch (error) {
+            console.error('Ошибка отслеживания прогресса:', error);
+        }
+    }, 2000);
+}
+
+// Обновление прогресса
+function updateProgress(status) {
+    const progressBar = document.querySelector('.progress-bar');
+    const progressText = document.getElementById('progressText');
+    const progressDetails = document.getElementById('progressDetails');
+    
+    progressBar.style.width = `${status.progress || 0}%`;
+    progressText.textContent = getStatusText(status.status);
+    
+    if (status.results_summary) {
+        progressDetails.innerHTML = `
+            <div class="row">
+                <div class="col-6">Сделок: ${status.results_summary.total_trades || 0}</div>
+                <div class="col-6">Винрейт: ${(status.results_summary.win_rate || 0).toFixed(1)}%</div>
+            </div>
+        `;
+    }
+}
+
+// Текст статуса
+function getStatusText(status) {
+    const statusTexts = {
+        'pending': 'Ожидание запуска...',
+        'running': 'Выполнение бэктеста...',
+        'completed': 'Бэктест завершен!',
+        'error': 'Ошибка выполнения'
+    };
+    return statusTexts[status] || status;
+}
+
+// Показ уведомлений
+function showNotification(message, type = 'info') {
+    // Простая реализация уведомлений
+    const alertClass = {
+        'success': 'alert-success',
+        'error': 'alert-danger',
+        'warning': 'alert-warning',
+        'info': 'alert-info'
+    }[type] || 'alert-info';
+    
+    const notification = document.createElement('div');
+    notification.className = `alert ${alertClass} alert-dismissible fade show position-fixed`;
+    notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    notification.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 5000);
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    // Устанавливаем значения по умолчанию
+    resetConfig();
+});
+</script>
+{% endblock %}

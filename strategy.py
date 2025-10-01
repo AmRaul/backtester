@@ -4,6 +4,14 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
+# Импортируем модуль индикаторов
+try:
+    from indicators import TechnicalIndicators, IndicatorStrategy
+    INDICATORS_AVAILABLE = True
+except ImportError:
+    INDICATORS_AVAILABLE = False
+    print("Warning: indicators module not available. Technical indicators will be disabled.")
+
 class OrderType(Enum):
     LONG = "long"
     SHORT = "short"
@@ -143,6 +151,28 @@ class TradingStrategy:
         self.trailing_tp_price = None
         self.trailing_sl_price = None
         self.peak_balance = self.balance
+        
+        # Инициализация индикаторов
+        self.indicators_enabled = False
+        self.indicator_strategy = None
+        self.indicator_config = {}
+        
+        if INDICATORS_AVAILABLE:
+            # Проверяем, включены ли индикаторы в конфигурации
+            indicators_config = config.get('indicators', {})
+            self.indicators_enabled = indicators_config.get('enabled', False)
+            
+            if self.indicators_enabled:
+                self.indicator_strategy = indicators_config.get('strategy_type', 'trend_momentum')
+                self.indicator_config = indicators_config.get(self.indicator_strategy, {})
+                
+                # Инициализируем индикаторы
+                self.indicators = TechnicalIndicators()
+                self.indicator_strategy_handler = IndicatorStrategy(self.indicators)
+                
+                if self.verbose:
+                    print(f"Индикаторы включены: {self.indicator_strategy}")
+                    print(f"Конфигурация: {self.indicator_config}")
     
     def should_enter_position(self, current_data: pd.Series, historical_data: pd.DataFrame) -> bool:
         """
@@ -158,6 +188,73 @@ class TradingStrategy:
         if self.has_open_position():
             return False
         
+        # Если индикаторы включены, используем их логику
+        if self.indicators_enabled and INDICATORS_AVAILABLE:
+            return self._indicator_based_entry_logic(current_data, historical_data)
+        
+        # Иначе используем базовую логику
+        return self._basic_entry_logic(current_data, historical_data)
+    
+    def _indicator_based_entry_logic(self, current_data: pd.Series, historical_data: pd.DataFrame) -> bool:
+        """
+        Логика входа на основе технических индикаторов
+        
+        Args:
+            current_data: текущие данные
+            historical_data: исторические данные
+            
+        Returns:
+            True если следует входить в позицию
+        """
+        try:
+            if self.indicator_strategy == 'trend_momentum':
+                signal_data = self.indicator_strategy_handler.trend_momentum_signal(
+                    historical_data, self.indicator_config
+                )
+                
+                if self.order_type == OrderType.LONG:
+                    return signal_data['long_signal']
+                else:
+                    return signal_data['short_signal']
+                    
+            elif self.indicator_strategy == 'volatility_bounce':
+                signal_data = self.indicator_strategy_handler.volatility_bounce_signal(
+                    historical_data, self.indicator_config
+                )
+                
+                if self.order_type == OrderType.LONG:
+                    return signal_data['long_signal']
+                else:
+                    return signal_data['short_signal']
+                    
+            elif self.indicator_strategy == 'momentum_trend':
+                signal_data = self.indicator_strategy_handler.momentum_trend_signal(
+                    historical_data, self.indicator_config
+                )
+                
+                if self.order_type == OrderType.LONG:
+                    return signal_data['long_signal']
+                else:
+                    return signal_data['short_signal']
+            
+            return False
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"Ошибка в индикаторной логике: {e}")
+            return False
+    
+    def _basic_entry_logic(self, current_data: pd.Series, historical_data: pd.DataFrame) -> bool:
+        """
+        Базовая логика входа в позицию (без индикаторов)
+        
+        Args:
+            current_data: текущие данные (строка из DataFrame)
+            historical_data: исторические данные для анализа
+            
+        Returns:
+            True если следует входить в позицию
+        """
         current_price = current_data['close']
         
         if self.entry_type == 'immediate':
@@ -249,12 +346,39 @@ class TradingStrategy:
         
         elif self.step_price_type == 'atr_based' and historical_data is not None:
             # Используем ATR для расчета шага
-            atr = self._calculate_atr(historical_data)
-            if atr > 0:
-                atr_multiplier = self.step_price_atr_multiplier or 1.0
-                return (atr / historical_data['close'].iloc[-1]) * atr_multiplier
+            if self.indicators_enabled and INDICATORS_AVAILABLE:
+                # Используем библиотеку ta для ATR
+                atr = self.indicators.calculate_atr(
+                    historical_data['high'], 
+                    historical_data['low'], 
+                    historical_data['close'], 
+                    14,  # период ATR
+                    "atr_dca"
+                )
+                current_atr = atr.iloc[-1]
+                current_price = historical_data['close'].iloc[-1]
+                
+                if current_atr > 0 and current_price > 0:
+                    atr_multiplier = self.step_price_atr_multiplier or 1.0
+                    # ATR как процент от цены
+                    atr_percent = (current_atr / current_price) * 100
+                    
+                    # Применяем прогрессию если включен мартингейл
+                    if self.martingale_enabled:
+                        multiplier = self.martingale_multiplier ** dca_level
+                        return atr_percent * multiplier
+                    else:
+                        return atr_percent * atr_multiplier
+                else:
+                    return base_step
             else:
-                return base_step
+                # Fallback к простому ATR расчету
+                atr = self._calculate_atr(historical_data)
+                if atr > 0:
+                    atr_multiplier = self.step_price_atr_multiplier or 1.0
+                    return (atr / historical_data['close'].iloc[-1]) * atr_multiplier
+                else:
+                    return base_step
         
         return base_step
     

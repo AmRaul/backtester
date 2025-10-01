@@ -122,7 +122,8 @@ def main():
         type=str,
         choices=['conservative_long', 'conservative_short', 'immediate_long', 'high_leverage_test', 
                 'altcoin_simple_dca', 'aggressive_martingale', 'fibonacci_dca', 'short_strategy', 
-                'risk_based_sizing', 'atr_based_steps', 'fixed_amount_strategy'],
+                'risk_based_sizing', 'atr_based_steps', 'fixed_amount_strategy',
+                'trend_momentum_strategy', 'volatility_bounce_strategy', 'momentum_trend_strategy'],
         help='Выбрать готовую стратегию из примеров'
     )
     

@@ -82,8 +82,12 @@ def config_page():
             examples['api'] = json.load(f)
     
     # Получаем список доступных бирж
-    loader = DataLoader()
-    exchanges = loader.get_available_exchanges()
+    try:
+        loader = DataLoader()
+        exchanges = loader.get_available_exchanges()
+    except Exception as e:
+        print(f"Ошибка загрузки бирж: {e}")
+        exchanges = ['binance', 'okx', 'bybit', 'kucoin']  # Fallback список
     
     return render_template('config.html', examples=examples, exchanges=exchanges)
 
@@ -213,18 +217,17 @@ def download_data():
 @app.route('/results')
 def results_page():
     """Страница результатов"""
-    # Получаем список завершенных бэктестов
-    completed_tasks = []
+    # Получаем список всех задач
+    all_tasks = []
     for task_id, task in running_backtests.items():
-        if task.status in ['completed', 'error']:
-            completed_tasks.append({
-                'task_id': task_id,
-                'status': task.status,
-                'start_time': task.start_time,
-                'config_symbol': task.config.get('symbol', 'Unknown')
-            })
+        all_tasks.append({
+            'task_id': task_id,
+            'status': task.status,
+            'start_time': task.start_time,
+            'config_symbol': task.config.get('symbol', 'Unknown')
+        })
     
-    return render_template('results.html', tasks=completed_tasks)
+    return render_template('results.html', tasks=all_tasks)
 
 @app.route('/results/<task_id>')
 def view_results(task_id):
@@ -236,10 +239,13 @@ def view_results(task_id):
     results = backtest_results[task_id]
     
     # Создаем репортер для генерации графиков
-    reporter = BacktestReporter(results)
-    
-    # Генерируем графики в base64 для встраивания в HTML
-    charts = generate_charts_base64(reporter)
+    try:
+        reporter = BacktestReporter(results)
+        # Генерируем графики в base64 для встраивания в HTML
+        charts = generate_charts_base64(reporter)
+    except Exception as e:
+        print(f"Ошибка генерации графиков: {e}")
+        charts = {}
     
     return render_template('view_results.html', 
                          results=results, 
