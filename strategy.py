@@ -258,10 +258,8 @@ class TradingStrategy:
         current_price = current_data['close']
         
         if self.entry_type == 'immediate':
-            # Немедленный вход в позицию
-            trigger = self.entry_config.get('trigger', 'start')
-            if trigger == 'start':
-                return True
+            # Немедленный вход в позицию (при первой возможности)
+            return True
         
         elif self.entry_type == 'manual':
             # Простая логика входа по падению/росту цены
@@ -498,67 +496,76 @@ class TradingStrategy:
     def calculate_order_quantity(self, price: float, is_dca: bool = False, dca_level: int = 0) -> float:
         """
         Вычисляет размер ордера с учетом плеча и различных методов расчета
-        
+        Мартингейл применяется к количеству монет, а не к долларовой сумме
+
+        ВАЖНО: base_amount - это размер ПОЗИЦИИ (не маржи!)
+        Например: 10 USD = позиция на 10 USD, при плече 10x маржа будет 1 USD
+
         Args:
             price: цена исполнения
             is_dca: является ли ордер DCA
             dca_level: уровень DCA ордера
-            
+
         Returns:
-            Размер ордера
+            Размер ордера (в монетах)
         """
-        if not is_dca:
-            # Первый ордер - используем настройки first_order
-            if self.first_order_amount_fixed:
-                order_amount = self.first_order_amount_fixed
-            elif self.first_order_risk_percent:
-                # Расчет на основе риска (процент от баланса при стоп-лоссе)
-                risk_amount = self.balance * (self.first_order_risk_percent / 100)
-                if self.sl_enabled and self.stop_loss_percent > 0:
-                    order_amount = risk_amount / self.stop_loss_percent
-                else:
-                    order_amount = risk_amount
-            else:
-                # Процент от баланса
-                if self.first_order_amount_percent is not None:
-                    order_amount = self.balance * (self.first_order_amount_percent / 100)
-                else:
-                    # Если процент не указан, используем фиксированную сумму или 10% по умолчанию
-                    order_amount = self.first_order_amount_fixed if self.first_order_amount_fixed else self.balance * 0.1
-        else:
-            # DCA ордер
-            if self.first_order_amount_percent is not None:
-                base_amount = self.balance * (self.first_order_amount_percent / 100)
-            else:
-                # Если процент не указан, используем фиксированную сумму или 10% по умолчанию
-                base_amount = self.first_order_amount_fixed if self.first_order_amount_fixed else self.balance * 0.1
-            
-            if self.martingale_enabled:
-                # Применяем мартингейл
-                if self.martingale_progression == 'exponential':
-                    multiplier = self.martingale_multiplier ** dca_level
-                elif self.martingale_progression == 'linear':
-                    multiplier = 1 + (self.martingale_multiplier - 1) * dca_level
-                else:  # fibonacci
-                    multiplier = self._fibonacci_multiplier(dca_level)
-                
-                order_amount = base_amount * multiplier
-            else:
-                order_amount = base_amount
-        
-        # Применяем плечо
-        order_amount *= self.leverage
-        
-        # Проверяем лимиты баланса
-        if order_amount > self.balance * 0.9:  # Оставляем 10% резерва
-            order_amount = self.balance * 0.9
-        
         # Проверяем максимальную просадку
         current_drawdown = (self.peak_balance - self.balance) / self.peak_balance
         if current_drawdown >= self.max_drawdown_percent:
             return 0  # Не открываем новые позиции при превышении просадки
-        
-        return order_amount / price
+
+        # Рассчитываем базовую сумму = РАЗМЕР ПОЗИЦИИ (не маржи!)
+        if self.first_order_amount_fixed:
+            # Фиксированная сумма = размер позиции
+            base_position_size = self.first_order_amount_fixed
+        elif self.first_order_risk_percent:
+            # Расчет на основе риска (процент от баланса при стоп-лоссе)
+            risk_amount = self.balance * (self.first_order_risk_percent / 100)
+            if self.sl_enabled and self.stop_loss_percent > 0:
+                base_position_size = risk_amount / self.stop_loss_percent
+            else:
+                base_position_size = risk_amount
+        else:
+            # Процент от баланса
+            if self.first_order_amount_percent is not None:
+                # Процент от баланса с учётом плеча
+                margin = self.balance * (self.first_order_amount_percent / 100)
+                base_position_size = margin * self.leverage
+            else:
+                # Если процент не указан, используем фиксированную сумму или 10% по умолчанию
+                if self.first_order_amount_fixed:
+                    base_position_size = self.first_order_amount_fixed
+                else:
+                    margin = self.balance * 0.1
+                    base_position_size = margin * self.leverage
+
+        # Переводим размер позиции в количество монет ПО ТЕКУЩЕЙ ЦЕНЕ
+        base_quantity = base_position_size / price
+
+        # Для DCA ордеров применяем мартингейл к КОЛИЧЕСТВУ монет
+        if is_dca and self.martingale_enabled:
+            if self.martingale_progression == 'exponential':
+                multiplier = self.martingale_multiplier ** dca_level
+            elif self.martingale_progression == 'linear':
+                multiplier = 1 + (self.martingale_multiplier - 1) * dca_level
+            else:  # fibonacci
+                multiplier = self._fibonacci_multiplier(dca_level)
+
+            order_quantity = base_quantity * multiplier
+        else:
+            order_quantity = base_quantity
+
+        # Проверяем лимиты баланса (проверяем МАРЖУ, а не полную стоимость)
+        order_value = order_quantity * price
+        required_margin = order_value / self.leverage
+
+        # Оставляем 10% резерва баланса
+        if required_margin > self.balance * 0.9:
+            max_margin = self.balance * 0.9
+            max_position_value = max_margin * self.leverage
+            order_quantity = max_position_value / price
+
+        return order_quantity
     
     def _fibonacci_multiplier(self, level: int) -> float:
         """Вычисляет мультипликатор по последовательности Фибоначчи"""
@@ -591,25 +598,38 @@ class TradingStrategy:
     
     def execute_order(self, order: Order) -> bool:
         """
-        Исполняет ордер
-        
+        Исполняет ордер с учётом плеча
+
         Args:
             order: ордер для исполнения
-            
+
         Returns:
             True если ордер успешно исполнен
         """
-        order_cost = order.price * order.quantity
-        commission = order_cost * self.commission_rate
-        
-        total_cost = order_cost + commission
-        
+        # Полная стоимость позиции
+        order_value = order.price * order.quantity
+
+        # Требуемая маржа = стоимость позиции / плечо
+        margin_required = order_value / self.leverage
+
+        # Комиссия рассчитывается от полной стоимости позиции
+        commission = order_value * self.commission_rate
+
+        # Итоговая сумма к списанию = маржа + комиссия
+        total_cost = margin_required + commission
+
+        # Проверяем, достаточно ли средств
         if total_cost > self.balance:
+            if self.verbose:
+                print(f"[ORDER REJECTED] Недостаточно средств. Требуется: ${total_cost:.2f}, доступно: ${self.balance:.2f}")
             return False
-        
-        # Списываем средства (включая комиссию)
+
+        # Списываем средства (только маржу + комиссию)
         self.balance -= total_cost
         order.status = OrderStatus.FILLED
+
+        if self.verbose:
+            print(f"[ORDER EXECUTED] Маржа: ${margin_required:.2f} | Комиссия: ${commission:.4f} | Списано: ${total_cost:.2f}")
         
         # Создаем или обновляем позицию
         if not self.has_open_position():
@@ -786,29 +806,45 @@ class TradingStrategy:
         
         # Вычисляем прибыль/убыток
         avg_price = position.average_price
-        
+
         if position.order_type == OrderType.LONG:
             pnl = (current_price - avg_price) * position.quantity
         else:  # SHORT
             pnl = (avg_price - current_price) * position.quantity
-        
-        # Вычисляем комиссию за закрытие
+
+        # Вычисляем комиссию за закрытие (от полной стоимости)
         close_value = current_price * position.quantity
         close_commission = close_value * self.commission_rate
-        
-        # Возвращаем средства от продажи (минус комиссия)
-        self.balance += close_value - close_commission
-        
-        # Учитываем комиссию в PnL
+
+        # Вычисляем общую маржу, которая была заблокирована
+        # Это сумма всех маржей от всех ордеров в позиции
+        total_margin_used = sum(
+            (order.price * order.quantity / self.leverage)
+            for order in position.orders
+        )
+
+        # Возвращаем маржу + PnL - комиссия за закрытие
+        self.balance += total_margin_used + pnl - close_commission
+
+        # Учитываем комиссию за закрытие в PnL
         pnl -= close_commission
+
+        # Учитываем комиссии за открытие (уже списаны при execute_order)
+        total_open_commission = sum(
+            (order.price * order.quantity * self.commission_rate)
+            for order in position.orders
+        )
+        pnl -= total_open_commission
         
         # Записываем сделку в историю
         trade_info = {
             'symbol': position.symbol,
-            'order_type': position.order_type.value,
+            'type': position.order_type.value,  # 'long' or 'short'
+            'order_type': position.order_type.value,  # Для обратной совместимости
             'entry_price': position.entry_price,  # Цена первого ордера
             'average_price': avg_price,           # Средняя цена всех ордеров
             'exit_price': current_price,
+            'volume': position.quantity,  # Добавляем volume для совместимости с шаблоном
             'quantity': position.quantity,
             'pnl': pnl,
             'pnl_percent': (pnl / (avg_price * position.quantity)) * 100,

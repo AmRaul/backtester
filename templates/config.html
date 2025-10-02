@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="row mt-4">
-    <div class="col-12">
+    <div class="col-lg-8">
         <div class="card">
             <div class="card-header bg-primary text-white">
                 <h5 class="card-title mb-0">
@@ -73,7 +73,23 @@
                                 </div>
                                 <div class="mb-3">
                                     <label for="symbol" class="form-label">Торговая пара</label>
-                                    <input type="text" class="form-control" id="symbol" value="BTCUSDT" placeholder="BTCUSDT">
+                                    <div class="input-group mb-1">
+                                        <input type="text" class="form-control" id="symbol" value="BTCUSDT" placeholder="Например: BTCUSDT">
+                                        <select class="form-select" id="exchangeSelect" style="max-width: 120px;">
+                                            <option value="binance">Binance</option>
+                                            <option value="okx">OKX</option>
+                                            <option value="bybit">Bybit</option>
+                                            <option value="kucoin">KuCoin</option>
+                                        </select>
+                                        <select class="form-select" id="marketTypeSelect" style="max-width: 100px;">
+                                            <option value="spot">Spot</option>
+                                            <option value="futures">Futures</option>
+                                        </select>
+                                        <button class="btn btn-outline-secondary" type="button" onclick="fetchCurrentPrice()" title="Загрузить текущую цену">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </button>
+                                    </div>
+                                    <small class="text-muted">Текущая цена (<span id="currentExchange">Binance</span> <span id="currentMarketType">Spot</span>): <span id="currentPriceMain" class="text-primary fw-bold">-</span></small>
                                 </div>
                             </div>
                         </div>
@@ -84,18 +100,25 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="entryTrigger" class="form-label">Триггер входа</label>
-                                    <select class="form-select" id="entryTrigger">
-                                        <option value="price_drop">Падение цены</option>
-                                        <option value="price_rise">Рост цены</option>
+                                    <label for="entryType" class="form-label">Тип входа</label>
+                                    <select class="form-select" id="entryType">
+                                        <option value="immediate">Немедленный вход (без сигнала)</option>
+                                        <option value="price_drop">При падении цены</option>
+                                        <option value="price_rise">При росте цены</option>
+                                        <option value="rsi_oversold">RSI перепроданность</option>
+                                        <option value="rsi_overbought">RSI перекупленность</option>
                                     </select>
                                 </div>
-                                <div class="mb-3">
+                                <div class="mb-3" id="entryPercentGroup">
                                     <label for="entryPercent" class="form-label">Процент изменения для входа</label>
                                     <div class="input-group">
                                         <input type="number" class="form-control" id="entryPercent" value="2" min="0.1" step="0.1">
                                         <span class="input-group-text">%</span>
                                     </div>
+                                </div>
+                                <div class="mb-3" id="rsiPeriodGroup" style="display: none;">
+                                    <label for="rsiPeriod" class="form-label">Период RSI</label>
+                                    <input type="number" class="form-control" id="rsiPeriod" value="14" min="5" max="50">
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -132,10 +155,40 @@
                                     <input type="number" class="form-control" id="maxDcaOrders" value="5" min="1" max="20">
                                 </div>
                                 <div class="mb-3">
+                                    <label for="dcaStepType" class="form-label">Тип шага цены</label>
+                                    <select class="form-select" id="dcaStepType">
+                                        <option value="fixed">Фиксированный</option>
+                                        <option value="dynamic">Динамический (прогрессивный)</option>
+                                        <option value="atr_based">На основе ATR</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3" id="dcaStepFixedGroup">
                                     <label for="dcaStepPercent" class="form-label">Шаг цены для DCA</label>
                                     <div class="input-group">
                                         <input type="number" class="form-control" id="dcaStepPercent" value="1.5" min="0.1" step="0.1">
                                         <span class="input-group-text">%</span>
+                                    </div>
+                                </div>
+                                <div class="mb-3" id="dcaStepDynamicGroup" style="display: none;">
+                                    <label for="dcaStepBase" class="form-label">Базовый шаг</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="dcaStepBase" value="1.0" min="0.1" step="0.1">
+                                        <span class="input-group-text">%</span>
+                                    </div>
+                                    <label for="dcaStepMultiplier" class="form-label">Мультипликатор роста</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="dcaStepMultiplier" value="1.1" min="1.0" step="0.1">
+                                        <span class="input-group-text">x</span>
+                                    </div>
+                                    <small class="text-muted">Пример: 1% → 1.1% → 1.21% → 1.33%</small>
+                                </div>
+                                <div class="mb-3" id="dcaStepAtrGroup" style="display: none;">
+                                    <label for="dcaAtrPeriod" class="form-label">Период ATR</label>
+                                    <input type="number" class="form-control" id="dcaAtrPeriod" value="14" min="5" max="50">
+                                    <label for="dcaAtrMultiplier" class="form-label">Мультипликатор ATR</label>
+                                    <div class="input-group">
+                                        <input type="number" class="form-control" id="dcaAtrMultiplier" value="2.0" min="0.5" step="0.1">
+                                        <span class="input-group-text">x</span>
                                     </div>
                                 </div>
                             </div>
@@ -229,12 +282,30 @@
                                     </label>
                                 </div>
                                 <div class="mb-3" id="csvFileGroup">
-                                    <label for="csvFile" class="form-label">Путь к CSV файлу</label>
+                                    <label for="csvFile" class="form-label">CSV файл</label>
                                     <select class="form-select" id="csvFile">
-                                        <option value="data/BTCUSDT_15m.csv">data/BTCUSDT_15m.csv</option>
-                                        <option value="data/ETHUSDT_15m.csv">data/ETHUSDT_15m.csv</option>
-                                        <option value="data/XRPUSDT_15m.csv">data/XRPUSDT_15m.csv</option>
+                                        {% if csv_files %}
+                                            {% for csv_file in csv_files %}
+                                                <option value="{{ csv_file.path }}"
+                                                        data-range="{{ csv_file.date_range }}"
+                                                        data-rows="{{ csv_file.rows }}"
+                                                        data-size="{{ csv_file.size }}">
+                                                    {% set symbol = csv_file.name.split('_')[0] %}
+                                                    {% set timeframe = csv_file.name.split('_')[1] if '_' in csv_file.name else '' %}
+                                                    {{ symbol }} - {{ timeframe }}
+                                                </option>
+                                            {% endfor %}
+                                        {% else %}
+                                            <option value="">Нет доступных CSV файлов</option>
+                                        {% endif %}
                                     </select>
+                                    <div class="mt-2 p-2 bg-light rounded" id="csvFileInfo" style="display: none;">
+                                        <small>
+                                            <div><strong>Период:</strong> <span id="csvPeriod">-</span></div>
+                                            <div><strong>Свечей:</strong> <span id="csvRows">-</span></div>
+                                            <div><strong>Размер:</strong> <span id="csvSize">-</span></div>
+                                        </small>
+                                    </div>
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -266,6 +337,54 @@
                                             <option value="4h">4 часа</option>
                                             <option value="1d">1 день</option>
                                         </select>
+                                    </div>
+                                    <div class="mt-2">
+                                        <label for="marketType" class="form-label">Тип рынка</label>
+                                        <select class="form-select" id="marketType">
+                                            <option value="spot" selected>Спот</option>
+                                            <option value="swap">Фьючерсы (Swap/Perpetual)</option>
+                                            <option value="futures">Фьючерсы с экспирацией</option>
+                                        </select>
+                                        <small class="form-text text-muted">
+                                            <i class="fas fa-info-circle"></i> Swap - бессрочные контракты, Futures - с датой истечения
+                                        </small>
+                                    </div>
+                                    <div class="mt-2">
+                                        <label class="form-label">Период загрузки</label>
+                                        <div class="btn-group w-100" role="group" id="periodButtons">
+                                            <input type="radio" class="btn-check" name="dataPeriod" id="period1m" value="1m" checked>
+                                            <label class="btn btn-outline-primary btn-sm" for="period1m">1 месяц</label>
+
+                                            <input type="radio" class="btn-check" name="dataPeriod" id="period3m" value="3m">
+                                            <label class="btn btn-outline-primary btn-sm" for="period3m">3 месяца</label>
+
+                                            <input type="radio" class="btn-check" name="dataPeriod" id="period6m" value="6m">
+                                            <label class="btn btn-outline-primary btn-sm" for="period6m">6 месяцев</label>
+
+                                            <input type="radio" class="btn-check" name="dataPeriod" id="period1y" value="1y">
+                                            <label class="btn btn-outline-primary btn-sm" for="period1y">1 год</label>
+
+                                            <input type="radio" class="btn-check" name="dataPeriod" id="periodAll" value="all">
+                                            <label class="btn btn-outline-primary btn-sm" for="periodAll">Все</label>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="useCustomDateRange" onchange="toggleCustomDateRange()">
+                                            <label class="form-check-label" for="useCustomDateRange">
+                                                Указать свой диапазон дат
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div id="customDateRangeGroup" style="display: none;">
+                                        <div class="mt-2">
+                                            <label for="startDate" class="form-label">Начальная дата</label>
+                                            <input type="date" class="form-control" id="startDate" value="">
+                                        </div>
+                                        <div class="mt-2">
+                                            <label for="endDate" class="form-label">Конечная дата</label>
+                                            <input type="date" class="form-control" id="endDate" value="">
+                                        </div>
                                     </div>
                                     <div class="mt-2">
                                         <button type="button" class="btn btn-outline-primary btn-sm" onclick="downloadDataFromApi()">
@@ -303,6 +422,74 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Боковая панель с симуляцией -->
+    <div class="col-lg-4">
+        <div class="card sticky-top" style="top: 20px;">
+            <div class="card-header bg-info text-white">
+                <h6 class="card-title mb-0">
+                    <i class="fas fa-calculator me-2"></i>Симуляция стратегии
+                </h6>
+            </div>
+            <div class="card-body p-2">
+                <!-- Основная информация -->
+                <div class="mb-2">
+                    <small class="text-muted">Пара:</small>
+                    <div id="sim-symbol" class="fw-bold">-</div>
+                    <small class="text-muted">Текущая цена: <span id="currentPrice" class="text-primary">-</span> <i class="fas fa-sync-alt" style="cursor: pointer;" onclick="fetchCurrentPrice()" title="Обновить цену"></i></small>
+                </div>
+
+                <div class="mb-2">
+                    <small class="text-muted">Открытие:</small>
+                    <div><span id="sim-type">-</span>, <span id="sim-leverage">-</span>x | ПО: <span id="sim-first-order">-</span> USDT</div>
+                </div>
+
+                <div class="mb-2">
+                    <small class="text-muted">Усреднение:</small>
+                    <div>СО: <span id="sim-dca-amount">-</span> USDT, <span id="sim-step">-</span>% | M: <span id="sim-multiplier">-</span> | ДШЦ: <span id="sim-max-orders">-</span></div>
+                </div>
+
+                <div class="mb-2">
+                    <small class="text-muted">Закрытие:</small>
+                    <div>ТП: <span id="sim-tp">-</span>%</div>
+                </div>
+
+                <hr class="my-2">
+
+                <!-- Таблица ордеров -->
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-sm table-hover mb-0" style="font-size: 0.85rem;">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th class="py-1">Ордер</th>
+                                <th class="py-1">Объем / Монет</th>
+                                <th class="py-1">Цена</th>
+                                <th class="py-1">Усред.</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersTable">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-2">
+                                    <small>Настройте параметры</small>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <hr class="my-2">
+
+                <!-- Итоговая информация -->
+                <div style="font-size: 0.85rem;">
+                    <div class="mb-1"><strong>Общая маржа:</strong> <span id="sim-total-margin">-</span> USDT (x<span id="sim-leverage2">-</span>)</div>
+                    <div class="mb-1"><strong>Мои средства:</strong> <span id="sim-my-funds">-</span> USDT</div>
+                    <div class="mb-1"><strong>Всего монет:</strong> <span id="sim-total-coins">-</span></div>
+                    <div class="mb-1"><strong>Ширина сетки:</strong> <span id="sim-grid-width">-</span>%</div>
+                    <div class="mb-0"><strong>Средняя точка входа:</strong> <span id="sim-avg-entry">-</span> USDT</div>
                 </div>
             </div>
         </div>
@@ -348,12 +535,125 @@ document.querySelectorAll('input[name="dataSource"]').forEach(radio => {
         if (this.value === 'csv') {
             csvGroup.style.display = 'block';
             apiGroup.style.display = 'none';
+            updateSymbolFromCsv();
         } else {
             csvGroup.style.display = 'none';
             apiGroup.style.display = 'block';
+            updateSymbolFromApi();
         }
     });
 });
+
+// Обновление символа из CSV файла
+function updateSymbolFromCsv() {
+    const csvSelect = document.getElementById('csvFile');
+    const csvFile = csvSelect.value;
+
+    if (csvFile) {
+        // Извлекаем символ из имени файла
+        const symbol = csvFile.split('/').pop().split('_')[0];
+        document.getElementById('symbol').value = symbol;
+
+        // Обновляем информационную панель
+        const selectedOption = csvSelect.options[csvSelect.selectedIndex];
+        const dateRange = selectedOption.getAttribute('data-range');
+        const rows = selectedOption.getAttribute('data-rows');
+        const size = selectedOption.getAttribute('data-size');
+
+        const infoPanel = document.getElementById('csvFileInfo');
+        if (dateRange && rows) {
+            document.getElementById('csvPeriod').textContent = dateRange;
+            document.getElementById('csvRows').textContent = rows;
+            document.getElementById('csvSize').textContent = formatFileSize(size);
+            infoPanel.style.display = 'block';
+        } else {
+            infoPanel.style.display = 'none';
+        }
+    }
+}
+
+// Форматирование размера файла
+function formatFileSize(bytes) {
+    if (!bytes || bytes == 0) return '-';
+    const kb = bytes / 1024;
+    if (kb < 1024) return kb.toFixed(1) + ' KB';
+    return (kb / 1024).toFixed(1) + ' MB';
+}
+
+// Обновление символа из API
+function updateSymbolFromApi() {
+    const apiSymbol = document.getElementById('apiSymbol').value;
+    if (apiSymbol) {
+        // Конвертируем формат API в формат для отображения (BTC/USDT -> BTCUSDT)
+        const symbol = apiSymbol.replace('/', '');
+        document.getElementById('symbol').value = symbol;
+    }
+}
+
+// Переключение типа входа
+document.getElementById('entryType').addEventListener('change', function() {
+    const entryPercentGroup = document.getElementById('entryPercentGroup');
+    const rsiPeriodGroup = document.getElementById('rsiPeriodGroup');
+    
+    if (this.value === 'immediate') {
+        entryPercentGroup.style.display = 'none';
+        rsiPeriodGroup.style.display = 'none';
+    } else if (this.value.includes('rsi')) {
+        entryPercentGroup.style.display = 'none';
+        rsiPeriodGroup.style.display = 'block';
+    } else {
+        entryPercentGroup.style.display = 'block';
+        rsiPeriodGroup.style.display = 'none';
+    }
+});
+
+// Переключение типа шага DCA
+document.getElementById('dcaStepType').addEventListener('change', function() {
+    const fixedGroup = document.getElementById('dcaStepFixedGroup');
+    const dynamicGroup = document.getElementById('dcaStepDynamicGroup');
+    const atrGroup = document.getElementById('dcaStepAtrGroup');
+    
+    // Скрываем все группы
+    fixedGroup.style.display = 'none';
+    dynamicGroup.style.display = 'none';
+    atrGroup.style.display = 'none';
+    
+    // Показываем нужную группу
+    if (this.value === 'fixed') {
+        fixedGroup.style.display = 'block';
+    } else if (this.value === 'dynamic') {
+        dynamicGroup.style.display = 'block';
+    } else if (this.value === 'atr_based') {
+        atrGroup.style.display = 'block';
+    }
+});
+
+// Переключение диапазона дат
+function toggleCustomDateRange() {
+    const useCustom = document.getElementById('useCustomDateRange').checked;
+    const customGroup = document.getElementById('customDateRangeGroup');
+    const periodButtons = document.getElementById('periodButtons');
+
+    if (useCustom) {
+        customGroup.style.display = 'block';
+        periodButtons.style.opacity = '0.5';
+        periodButtons.style.pointerEvents = 'none';
+
+        // Устанавливаем даты по умолчанию (последний месяц)
+        const today = new Date();
+        const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        document.getElementById('endDate').value = today.toISOString().split('T')[0];
+        document.getElementById('startDate').value = monthAgo.toISOString().split('T')[0];
+    } else {
+        customGroup.style.display = 'none';
+        periodButtons.style.opacity = '1';
+        periodButtons.style.pointerEvents = 'auto';
+
+        document.getElementById('startDate').value = '';
+        document.getElementById('endDate').value = '';
+    }
+}
 
 // Загрузка пресетов
 function loadPreset(type) {
@@ -362,7 +662,7 @@ function loadPreset(type) {
             startBalance: 1000,
             leverage: 1,
             orderType: 'long',
-            entryTrigger: 'price_drop',
+            entryType: 'immediate',
             entryPercent: 3,
             firstOrderAmount: 10,
             takeProfitEnabled: true,
@@ -372,13 +672,15 @@ function loadPreset(type) {
             dcaEnabled: true,
             maxDcaOrders: 3,
             martingaleEnabled: false,
+            dcaStepType: 'fixed',
+            dcaStepPercent: 2.0,
             maxDrawdown: 15
         },
         aggressive: {
             startBalance: 1000,
             leverage: 2,
             orderType: 'long',
-            entryTrigger: 'price_drop',
+            entryType: 'price_drop',
             entryPercent: 1,
             firstOrderAmount: 15,
             takeProfitEnabled: true,
@@ -389,13 +691,16 @@ function loadPreset(type) {
             maxDcaOrders: 5,
             martingaleEnabled: true,
             martingaleMultiplier: 2.5,
+            dcaStepType: 'dynamic',
+            dcaStepBase: 1.0,
+            dcaStepMultiplier: 1.2,
             maxDrawdown: 30
         },
         martingale: {
             startBalance: 1000,
             leverage: 1,
             orderType: 'long',
-            entryTrigger: 'price_drop',
+            entryType: 'price_drop',
             entryPercent: 1,
             firstOrderAmount: 10,
             takeProfitEnabled: true,
@@ -407,6 +712,9 @@ function loadPreset(type) {
             martingaleEnabled: true,
             martingaleMultiplier: 2.0,
             martingaleProgression: 'exponential',
+            dcaStepType: 'dynamic',
+            dcaStepBase: 0.8,
+            dcaStepMultiplier: 1.15,
             maxDrawdown: 40
         }
     };
@@ -435,19 +743,27 @@ function resetConfig() {
     document.getElementById('startBalance').value = 1000;
     document.getElementById('leverage').value = 1;
     document.getElementById('orderType').value = 'long';
-    document.getElementById('entryTrigger').value = 'price_drop';
+    document.getElementById('entryType').value = 'immediate';
     document.getElementById('entryPercent').value = 2;
     document.getElementById('firstOrderAmount').value = 10;
     document.getElementById('dcaEnabled').checked = true;
     document.getElementById('maxDcaOrders').value = 5;
     document.getElementById('martingaleEnabled').checked = true;
     document.getElementById('martingaleMultiplier').value = 2.0;
+    document.getElementById('dcaStepType').value = 'fixed';
+    document.getElementById('dcaStepPercent').value = 1.5;
     document.getElementById('takeProfitEnabled').checked = true;
     document.getElementById('takeProfitPercent').value = 5;
     document.getElementById('stopLossEnabled').checked = true;
     document.getElementById('stopLossPercent').value = 10;
     document.getElementById('maxDrawdown').value = 20;
     document.getElementById('maxPositions').value = 1;
+    
+    // Скрываем дополнительные группы
+    document.getElementById('entryPercentGroup').style.display = 'none';
+    document.getElementById('rsiPeriodGroup').style.display = 'none';
+    document.getElementById('dcaStepDynamicGroup').style.display = 'none';
+    document.getElementById('dcaStepAtrGroup').style.display = 'none';
     
     showNotification('Конфигурация сброшена', 'info');
 }
@@ -457,22 +773,39 @@ async function downloadDataFromApi() {
     const exchange = document.getElementById('exchange').value;
     const symbol = document.getElementById('apiSymbol').value;
     const timeframe = document.getElementById('timeframe').value;
-    
+    const marketType = document.getElementById('marketType').value;
+    const useCustom = document.getElementById('useCustomDateRange').checked;
+
     try {
         showNotification('Загрузка данных...', 'info');
-        
+
+        const requestData = {
+            exchange: exchange,
+            symbol: symbol,
+            timeframe: timeframe,
+            market_type: marketType
+        };
+
+        // Если используется кастомный диапазон
+        if (useCustom) {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            if (startDate && endDate) {
+                requestData.start_date = startDate;
+                requestData.end_date = endDate;
+            }
+        } else {
+            // Используем выбранный период
+            const selectedPeriod = document.querySelector('input[name="dataPeriod"]:checked').value;
+            requestData.period = selectedPeriod;
+        }
+
         const response = await fetch('/api/download-data', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                exchange: exchange,
-                symbol: symbol,
-                timeframe: timeframe,
-                start_date: null,
-                end_date: null
-            })
+            body: JSON.stringify(requestData)
         });
         
         const result = await response.json();
@@ -490,27 +823,75 @@ async function downloadDataFromApi() {
 }
 
 // Обновление списка CSV файлов
-function updateCsvFileList(filename) {
-    const csvSelect = document.getElementById('csvFile');
-    const option = document.createElement('option');
-    option.value = filename;
-    option.textContent = filename;
-    option.selected = true;
-    csvSelect.appendChild(option);
+async function updateCsvFileList(filename = null) {
+    try {
+        const response = await fetch('/api/csv-files');
+        const data = await response.json();
+
+        const csvSelect = document.getElementById('csvFile');
+        csvSelect.innerHTML = ''; // Очищаем текущий список
+
+        if (data.files && data.files.length > 0) {
+            data.files.forEach(file => {
+                const option = document.createElement('option');
+                option.value = file.path;
+
+                // Добавляем data-атрибуты для информационной панели
+                option.setAttribute('data-range', file.date_range || '');
+                option.setAttribute('data-rows', file.rows || 0);
+                option.setAttribute('data-size', file.size || 0);
+
+                // Упрощенное отображение: только SYMBOL - TIMEFRAME
+                const nameParts = file.name.split('_');
+                const symbol = nameParts[0] || file.name;
+                const timeframe = nameParts[1] || '';
+                option.textContent = `${symbol} - ${timeframe}`;
+
+                // Выбираем либо указанный файл, либо первый в списке
+                if (filename && file.path === filename) {
+                    option.selected = true;
+                } else if (!filename && csvSelect.options.length === 0) {
+                    option.selected = true;
+                }
+                csvSelect.appendChild(option);
+            });
+        } else {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Нет доступных CSV файлов';
+            csvSelect.appendChild(option);
+        }
+
+        // Обновляем символ
+        updateSymbolFromCsv();
+    } catch (error) {
+        console.error('Ошибка обновления списка CSV файлов:', error);
+    }
 }
+
+// Обработчики для автоматического обновления символа
+document.addEventListener('DOMContentLoaded', function() {
+    // При изменении CSV файла
+    document.getElementById('csvFile').addEventListener('change', updateSymbolFromCsv);
+    
+    // При изменении API символа
+    document.getElementById('apiSymbol').addEventListener('input', updateSymbolFromApi);
+});
 
 // Запуск бэктеста
 async function runBacktest() {
     try {
         // Собираем конфигурацию из формы
+        const entryType = document.getElementById('entryType').value;
         const config = {
             start_balance: parseFloat(document.getElementById('startBalance').value),
             leverage: parseInt(document.getElementById('leverage').value),
             order_type: document.getElementById('orderType').value,
             entry_conditions: {
-                type: 'manual',
-                trigger: document.getElementById('entryTrigger').value,
-                percent: parseFloat(document.getElementById('entryPercent').value)
+                type: entryType === 'immediate' ? 'immediate' : 'manual',
+                trigger: entryType === 'immediate' ? null : entryType,
+                percent: entryType === 'immediate' ? null : parseFloat(document.getElementById('entryPercent').value),
+                rsi_period: entryType.includes('rsi') ? parseInt(document.getElementById('rsiPeriod').value) : null
             },
             first_order: {
                 amount_percent: parseFloat(document.getElementById('firstOrderAmount').value),
@@ -525,12 +906,32 @@ async function runBacktest() {
                     multiplier: parseFloat(document.getElementById('martingaleMultiplier').value),
                     progression: document.getElementById('martingaleProgression').value
                 },
-                step_price: {
-                    type: 'fixed_percent',
-                    value: parseFloat(document.getElementById('dcaStepPercent').value),
-                    dynamic_multiplier: 1.0,
-                    atr_multiplier: null
-                }
+                step_price: (() => {
+                    const stepType = document.getElementById('dcaStepType').value;
+                    if (stepType === 'fixed') {
+                        return {
+                            type: 'fixed_percent',
+                            value: parseFloat(document.getElementById('dcaStepPercent').value),
+                            dynamic_multiplier: 1.0,
+                            atr_multiplier: null
+                        };
+                    } else if (stepType === 'dynamic') {
+                        return {
+                            type: 'dynamic_percent',
+                            value: parseFloat(document.getElementById('dcaStepBase').value),
+                            dynamic_multiplier: parseFloat(document.getElementById('dcaStepMultiplier').value),
+                            atr_multiplier: null
+                        };
+                    } else if (stepType === 'atr_based') {
+                        return {
+                            type: 'atr_based',
+                            value: null,
+                            dynamic_multiplier: null,
+                            atr_multiplier: parseFloat(document.getElementById('dcaAtrMultiplier').value),
+                            atr_period: parseInt(document.getElementById('dcaAtrPeriod').value)
+                        };
+                    }
+                })()
             },
             take_profit: {
                 enabled: document.getElementById('takeProfitEnabled').checked,
@@ -555,28 +956,33 @@ async function runBacktest() {
                 max_open_positions: parseInt(document.getElementById('maxPositions').value),
                 daily_loss_limit: null
             },
-            symbol: document.getElementById('symbol').value,
             timeframe: document.getElementById('timeframe').value,
             start_date: null,
             end_date: null
         };
         
-        // Определяем источник данных
+        // Определяем источник данных и символ
         const dataSource = document.querySelector('input[name="dataSource"]:checked').value;
         if (dataSource === 'csv') {
+            const csvFile = document.getElementById('csvFile').value;
             config.data_source = {
                 type: 'csv',
-                file: document.getElementById('csvFile').value
+                file: csvFile
             };
+            // Символ извлекается из имени файла
+            config.symbol = csvFile.split('/').pop().split('_')[0];
         } else {
+            const apiSymbol = document.getElementById('apiSymbol').value;
             config.data_source = {
                 type: 'api',
                 api: {
                     exchange: document.getElementById('exchange').value,
-                    symbol: document.getElementById('apiSymbol').value,
+                    symbol: apiSymbol,
                     auto_save: true
                 }
             };
+            // Символ конвертируется из API формата
+            config.symbol = apiSymbol.replace('/', '');
         }
         
         // Запускаем бэктест
@@ -696,6 +1102,283 @@ function showNotification(message, type = 'info') {
 document.addEventListener('DOMContentLoaded', function() {
     // Устанавливаем значения по умолчанию
     resetConfig();
+
+    // Обновляем симуляцию при изменении параметров
+    const inputsToWatch = [
+        'symbol', 'orderType', 'leverage', 'startBalance', 'firstOrderAmount', 'firstOrderFixed',
+        'dcaEnabled', 'maxDcaOrders', 'martingaleEnabled', 'martingaleMultiplier',
+        'dcaStepPercent', 'takeProfitPercent', 'dcaStepType', 'dcaStepBase', 'dcaStepMultiplier',
+        'dcaStepAtrPeriod', 'dcaStepAtrMultiplier'
+    ];
+
+    inputsToWatch.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener('input', updateSimulation);
+            element.addEventListener('change', updateSimulation);
+        }
+    });
+
+    // Первоначальное обновление
+    updateSimulation();
+    fetchCurrentPrice();
+
+    // Обновление цены при изменении символа
+    document.getElementById('symbol').addEventListener('change', fetchCurrentPrice);
+    document.getElementById('apiSymbol').addEventListener('change', function() {
+        document.getElementById('symbol').value = this.value;
+        fetchCurrentPrice();
+    });
 });
+
+// Загрузка текущей цены с биржи
+async function fetchCurrentPrice() {
+    try {
+        const symbol = document.getElementById('symbol').value || 'BTCUSDT';
+        const exchange = document.getElementById('exchangeSelect')?.value || 'binance';
+        const marketType = document.getElementById('marketTypeSelect')?.value || 'spot';
+
+        // Обновляем отображение биржи и типа рынка
+        const exchangeNames = {
+            'binance': 'Binance',
+            'okx': 'OKX',
+            'bybit': 'Bybit',
+            'kucoin': 'KuCoin'
+        };
+        const marketTypeNames = {
+            'spot': 'Spot',
+            'futures': 'Futures',
+            'swap': 'Swap'
+        };
+        document.getElementById('currentExchange').textContent = exchangeNames[exchange] || exchange;
+        document.getElementById('currentMarketType').textContent = marketTypeNames[marketType] || marketType;
+
+        // Форматируем символ для API
+        const formattedSymbol = symbol.includes('/') ? symbol : symbol.replace('USDT', '/USDT');
+
+        const response = await fetch('/api/current-price', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                symbol: formattedSymbol,
+                exchange: exchange,
+                market_type: marketType
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const priceFormatted = result.price.toFixed(4);
+            document.getElementById('currentPrice').textContent = priceFormatted;
+            document.getElementById('currentPriceMain').textContent = priceFormatted + ' USDT';
+            // Обновляем симуляцию с новой ценой
+            updateSimulation();
+        } else {
+            console.error('Ошибка получения цены:', result.error);
+            document.getElementById('currentPrice').textContent = 'Ошибка';
+            document.getElementById('currentPriceMain').textContent = 'Ошибка';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки цены:', error);
+        document.getElementById('currentPrice').textContent = 'Н/Д';
+        document.getElementById('currentPriceMain').textContent = 'Н/Д';
+    }
+}
+
+// Обновление симуляции стратегии
+function updateSimulation() {
+    try {
+        // Получаем параметры
+        const symbol = document.getElementById('symbol').value || 'LINKUSDT';
+        const orderType = document.getElementById('orderType').value || 'long';
+        const leverage = parseFloat(document.getElementById('leverage').value) || 1;
+        const startBalance = parseFloat(document.getElementById('startBalance').value) || 1000;
+        const firstOrderPercent = parseFloat(document.getElementById('firstOrderAmount').value) || 10;
+        const firstOrderFixed = document.getElementById('firstOrderFixed').value;
+        const dcaEnabled = document.getElementById('dcaEnabled').checked;
+        const maxOrders = parseInt(document.getElementById('maxDcaOrders').value) || 5;
+        const martingaleEnabled = document.getElementById('martingaleEnabled').checked;
+        const multiplier = parseFloat(document.getElementById('martingaleMultiplier').value) || 2;
+        const tpPercent = parseFloat(document.getElementById('takeProfitPercent').value) || 5;
+
+        // Получаем тип шага и соответствующие параметры
+        const dcaStepType = document.getElementById('dcaStepType').value;
+        let stepPercent = 1;
+        let stepConfig = { type: dcaStepType };
+
+        if (dcaStepType === 'fixed') {
+            stepPercent = parseFloat(document.getElementById('dcaStepPercent').value) || 1;
+        } else if (dcaStepType === 'dynamic') {
+            const stepBase = parseFloat(document.getElementById('dcaStepBase').value) || 1;
+            const stepMult = parseFloat(document.getElementById('dcaStepMultiplier').value) || 1.2;
+            stepPercent = stepBase;
+            stepConfig = { type: 'dynamic', base: stepBase, multiplier: stepMult };
+        } else if (dcaStepType === 'atr_based') {
+            stepPercent = 1.5; // Примерное значение для ATR
+            const atrPeriod = parseInt(document.getElementById('dcaStepAtrPeriod').value) || 14;
+            const atrMult = parseFloat(document.getElementById('dcaStepAtrMultiplier').value) || 1.5;
+            stepConfig = { type: 'atr_based', period: atrPeriod, multiplier: atrMult };
+        }
+
+        // Предполагаемая цена входа (будет загружаться с API)
+        const entryPrice = parseFloat(document.getElementById('currentPrice')?.textContent) || 22.336;
+
+        // Расчет первого ордера
+        // Фиксированная сумма = размер позиции (не маржи!)
+        // Процент от баланса = маржа, умножаем на плечо для получения размера позиции
+        const firstOrderAmount = firstOrderFixed && parseFloat(firstOrderFixed) > 0
+            ? parseFloat(firstOrderFixed)  // Фиксированная сумма = размер позиции
+            : (startBalance * firstOrderPercent / 100) * leverage;  // Маржа × плечо
+
+        // Обновляем основную информацию
+        document.getElementById('sim-symbol').innerHTML = `<strong>${symbol}</strong>`;
+        document.getElementById('sim-type').textContent = orderType.toUpperCase();
+        document.getElementById('sim-leverage').textContent = leverage;
+        document.getElementById('sim-leverage2').textContent = leverage;
+        document.getElementById('sim-first-order').textContent = firstOrderAmount.toFixed(2);
+
+        // Отображаем шаг в зависимости от типа
+        if (dcaStepType === 'dynamic') {
+            document.getElementById('sim-step').textContent = `${stepConfig.base.toFixed(2)} x${stepConfig.multiplier}`;
+        } else if (dcaStepType === 'atr_based') {
+            document.getElementById('sim-step').textContent = `ATR(${stepConfig.period}) x${stepConfig.multiplier}`;
+        } else {
+            document.getElementById('sim-step').textContent = stepPercent.toFixed(2);
+        }
+
+        document.getElementById('sim-multiplier').textContent = martingaleEnabled ? multiplier : 1;
+        document.getElementById('sim-max-orders').textContent = dcaEnabled ? (maxOrders + 1) : 1;
+        document.getElementById('sim-tp').textContent = tpPercent.toFixed(2);
+
+        if (!dcaEnabled) {
+            document.getElementById('sim-dca-amount').textContent = '0.00';
+        } else {
+            document.getElementById('sim-dca-amount').textContent = (firstOrderAmount * (martingaleEnabled ? multiplier : 1)).toFixed(2);
+        }
+
+        // Генерация таблицы ордеров
+        generateOrdersTable(entryPrice, firstOrderAmount, maxOrders, stepPercent, multiplier, martingaleEnabled, dcaEnabled, leverage, orderType, symbol, stepConfig);
+
+    } catch (error) {
+        console.error('Ошибка обновления симуляции:', error);
+    }
+}
+
+// Генерация таблицы ордеров
+function generateOrdersTable(entryPrice, firstOrderAmount, maxOrders, stepPercent, multiplier, martingaleEnabled, dcaEnabled, leverage, orderType, symbol, stepConfig) {
+    const tbody = document.getElementById('ordersTable');
+    tbody.innerHTML = '';
+
+    let totalVolume = 0;
+    let totalValue = 0;
+    let totalCoins = 0;
+    const orders = [];
+
+    const isLong = orderType === 'long';
+
+    // Первый ордер
+    // firstOrderAmount = размер позиции (уже с учётом плеча)
+    const firstOrder = {
+        name: 'ПО',
+        volume: firstOrderAmount,  // Размер позиции
+        price: entryPrice,
+        coins: firstOrderAmount / entryPrice,  // Количество монет = позиция / цена
+        totalVolume: firstOrderAmount,
+        totalValue: firstOrderAmount,
+        avgPrice: entryPrice,
+        priceChange: 0
+    };
+    orders.push(firstOrder);
+
+    totalVolume = firstOrderAmount;
+    totalValue = firstOrderAmount;
+    totalCoins = firstOrder.coins;
+
+    // DCA ордера
+    if (dcaEnabled) {
+        for (let i = 1; i <= maxOrders; i++) {
+            // Кумулятивное изменение цены от начальной цены
+            let cumulativePriceChange = 0;
+            let currentStepForOrder = 0;
+
+            if (stepConfig && stepConfig.type === 'dynamic') {
+                // Для динамического шага суммируем все предыдущие шаги
+                // Шаг 1: base, Шаг 2: base * mult, Шаг 3: base * mult², и т.д.
+                for (let j = 1; j <= i; j++) {
+                    const currentStep = stepConfig.base * Math.pow(stepConfig.multiplier, j - 1);
+                    cumulativePriceChange += currentStep;
+                    if (j === i) currentStepForOrder = currentStep; // Запоминаем шаг текущего ордера
+                }
+            } else if (stepConfig && stepConfig.type === 'atr_based') {
+                // Для ATR используем фиксированное значение
+                cumulativePriceChange = stepPercent * i;
+                currentStepForOrder = stepPercent;
+            } else {
+                // Для фиксированного шага просто умножаем на номер ордера
+                cumulativePriceChange = stepPercent * i;
+                currentStepForOrder = stepPercent;
+            }
+
+            const priceChange = isLong ? -cumulativePriceChange : cumulativePriceChange;
+            const orderPrice = entryPrice * (1 + priceChange / 100);
+
+            // ИСПРАВЛЕНО: Мартингейл применяется к количеству МОНЕТ, а не к долларам
+            const orderCoins = firstOrder.coins * Math.pow(martingaleEnabled ? multiplier : 1, i);
+            const orderVolume = orderCoins * orderPrice;  // Размер позиции = монеты × цена
+
+            totalVolume += orderVolume;
+            totalValue += orderVolume;
+            totalCoins += orderCoins;
+
+            const avgPrice = totalValue / totalCoins;
+
+            orders.push({
+                name: `${i} СО`,
+                volume: orderVolume,
+                price: orderPrice,
+                coins: orderCoins,
+                totalVolume: totalVolume,
+                totalValue: totalValue,
+                avgPrice: avgPrice,
+                priceChange: ((orderPrice - entryPrice) / entryPrice * 100),
+                stepPercent: currentStepForOrder // Добавляем информацию о шаге
+            });
+        }
+    }
+
+    // Отображение ордеров
+    orders.forEach((order, index) => {
+        const row = document.createElement('tr');
+        const stepInfo = order.stepPercent ? `<br><small class="text-muted">Шаг: ${order.stepPercent.toFixed(2)}%</small>` : '';
+        const coinSymbol = symbol.replace('USDT', '').replace(':USDT', '');
+        row.innerHTML = `
+            <td><strong>${order.name}</strong></td>
+            <td>
+                ${order.volume.toFixed(2)} $
+                <br><small class="text-primary">${order.coins.toFixed(2)} ${coinSymbol}</small>
+                <br><small class="text-muted">Σ: ${order.totalVolume.toFixed(2)} $</small>
+            </td>
+            <td>${order.price.toFixed(3)}<br><small class="text-muted">${order.avgPrice.toFixed(3)}</small></td>
+            <td><span class="${order.priceChange < 0 ? 'text-danger' : 'text-success'}">${order.priceChange.toFixed(2)}%</span>${stepInfo}</td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    // Обновление итогов
+    const totalMargin = totalValue;
+    const myFunds = totalMargin / leverage;
+    const lastOrder = orders[orders.length - 1];
+    const gridWidth = lastOrder.priceChange;
+    const avgEntry = lastOrder.avgPrice;
+
+    document.getElementById('sim-total-margin').textContent = totalMargin.toFixed(2);
+    document.getElementById('sim-my-funds').textContent = myFunds.toFixed(2);
+    document.getElementById('sim-total-coins').textContent = `${totalCoins.toFixed(1)} ${symbol.replace('USDT', '')}`;
+    document.getElementById('sim-grid-width').textContent = gridWidth.toFixed(2);
+    document.getElementById('sim-avg-entry').textContent = avgEntry.toFixed(3);
+}
 </script>
 {% endblock %}

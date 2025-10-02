@@ -82,16 +82,17 @@ class DataLoader:
         except Exception as e:
             raise Exception(f"Ошибка при загрузке данных: {str(e)}")
     
-    def load_from_api(self, 
-                     symbol: str, 
-                     timeframe: str, 
-                     start_date: str = None, 
+    def load_from_api(self,
+                     symbol: str,
+                     timeframe: str,
+                     start_date: str = None,
                      end_date: str = None,
                      exchange: str = 'binance',
-                     limit: int = 1000) -> pd.DataFrame:
+                     limit: int = 1000,
+                     market_type: str = 'spot') -> pd.DataFrame:
         """
         Загружает данные с биржи через CCXT
-        
+
         Args:
             symbol: торговая пара (например, 'BTC/USDT')
             timeframe: таймфрейм ('1m', '5m', '15m', '1h', '4h', '1d')
@@ -99,7 +100,8 @@ class DataLoader:
             end_date: конечная дата в формате 'YYYY-MM-DD' или 'YYYY-MM-DD HH:MM:SS'
             exchange: название биржи ('binance', 'okx', 'bybit', 'kucoin', etc.)
             limit: максимальное количество свечей за один запрос
-            
+            market_type: тип рынка ('spot', 'futures', 'swap')
+
         Returns:
             DataFrame с колонками: timestamp, open, high, low, close, volume
         """
@@ -115,17 +117,42 @@ class DataLoader:
             })
             
             print(f"Подключение к бирже: {exchange_instance.name}")
-            
+
             # Проверяем поддержку OHLCV
             if not exchange_instance.has['fetchOHLCV']:
                 raise Exception(f"Биржа {exchange} не поддерживает загрузку OHLCV данных")
-            
+
+            # Формируем символ в зависимости от типа рынка
+            full_symbol = symbol
+            if market_type in ['futures', 'swap']:
+                # Для фьючерсов добавляем суффикс :USDT если его нет
+                if ':' not in symbol:
+                    # Определяем quote currency из символа
+                    if '/USDT' in symbol:
+                        full_symbol = symbol + ':USDT'
+                    elif '/USD' in symbol:
+                        full_symbol = symbol + ':USD'
+                    elif '/BUSD' in symbol:
+                        full_symbol = symbol + ':BUSD'
+                    else:
+                        full_symbol = symbol + ':USDT'  # По умолчанию USDT
+
             # Проверяем доступность символа
             markets = exchange_instance.load_markets()
-            if symbol not in markets:
-                available_symbols = list(markets.keys())[:10]  # Показываем первые 10
-                raise Exception(f"Символ {symbol} недоступен на {exchange}. "
-                              f"Доступные символы (первые 10): {available_symbols}")
+            if full_symbol not in markets:
+                # Попробуем найти похожие символы
+                similar_symbols = [s for s in markets.keys() if symbol.replace('/', '') in s.replace('/', '').replace(':', '')]
+                error_msg = f"Символ {full_symbol} недоступен на {exchange}."
+                if similar_symbols:
+                    error_msg += f" Похожие символы: {similar_symbols[:5]}"
+                else:
+                    available_symbols = list(markets.keys())[:10]
+                    error_msg += f" Доступные символы (первые 10): {available_symbols}"
+                raise Exception(error_msg)
+
+            # Обновляем symbol на полный символ
+            symbol = full_symbol
+            print(f"Используется символ: {symbol} (тип рынка: {market_type})")
             
             # Проверяем поддержку таймфрейма
             if timeframe not in exchange_instance.timeframes:

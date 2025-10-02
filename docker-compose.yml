@@ -12,6 +12,11 @@ services:
       - ./data:/app/data
       - ./reports:/app/reports
       - ./logs:/app/logs
+      - ./db:/app/db
+      - ./templates:/app/templates
+      - ./web_app.py:/app/web_app.py
+      - ./strategy.py:/app/strategy.py
+      - ./backtester.py:/app/backtester.py
       - ./config.json:/app/config.json
       - ./config_examples.json:/app/config_examples.json
       - ./config_api_examples.json:/app/config_api_examples.json
@@ -38,4 +43,5 @@ networks:
     driver: bridge
 
 volumes:
-  redis_data: 
+  redis_data:
+  db_data: 

@@ -31,7 +31,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h5 class="card-title text-primary">
-                    {{ "%.2f"|format(results.basic_stats.total_return if results.basic_stats else 0) }}%
+                    {{ "%.2f"|format(results.get('basic_stats', {}).get('total_return', 0)) }}%
                 </h5>
                 <p class="card-text small">Общая доходность</p>
             </div>
@@ -41,7 +41,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h5 class="card-title text-success">
-                    {{ results.basic_stats.win_rate if results.basic_stats else 0 }}%
+                    {{ "%.2f"|format(results.get('basic_stats', {}).get('win_rate', 0)) }}%
                 </h5>
                 <p class="card-text small">Винрейт</p>
             </div>
@@ -51,7 +51,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h5 class="card-title text-info">
-                    {{ results.basic_stats.total_trades if results.basic_stats else 0 }}
+                    {{ results.get('basic_stats', {}).get('total_trades', 0) }}
                 </h5>
                 <p class="card-text small">Всего сделок</p>
             </div>
@@ -61,7 +61,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h5 class="card-title text-warning">
-                    {{ "%.2f"|format(results.basic_stats.max_drawdown if results.basic_stats else 0) }}%
+                    {{ "%.2f"|format(results.get('advanced_metrics', {}).get('max_drawdown_percent', 0)) }}%
                 </h5>
                 <p class="card-text small">Макс. просадка</p>
             </div>
@@ -111,31 +111,27 @@
                 </h6>
             </div>
             <div class="card-body">
-                {% if results.basic_stats %}
+                {% if results.get('basic_stats') %}
                 <table class="table table-sm">
                     <tr>
                         <td>Начальный баланс:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.initial_balance) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.get('config', {}).get('start_balance', 0)) }}</td>
                     </tr>
                     <tr>
                         <td>Финальный баланс:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.current_balance) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('current_balance', 0)) }}</td>
                     </tr>
                     <tr>
                         <td>Общая прибыль:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.total_profit) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('total_pnl', 0)) }}</td>
                     </tr>
                     <tr>
                         <td>Средняя прибыль:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.avg_profit) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('average_profit', 0)) }}</td>
                     </tr>
                     <tr>
                         <td>Средний убыток:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.avg_loss) }}</td>
-                    </tr>
-                    <tr>
-                        <td>Profit Factor:</td>
-                        <td class="text-end">{{ "%.2f"|format(results.basic_stats.profit_factor) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('average_loss', 0)) }}</td>
                     </tr>
                     {% endif %}
                 </table>
@@ -152,31 +148,31 @@
                 </h6>
             </div>
             <div class="card-body">
-                {% if results.risk_metrics %}
+                {% if results.get('advanced_metrics') %}
                 <table class="table table-sm">
                     <tr>
                         <td>Sharpe Ratio:</td>
-                        <td class="text-end">{{ "%.2f"|format(results.risk_metrics.sharpe_ratio) }}</td>
+                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('sharpe_ratio', 0)) }}</td>
                     </tr>
                     <tr>
-                        <td>Sortino Ratio:</td>
-                        <td class="text-end">{{ "%.2f"|format(results.risk_metrics.sortino_ratio) }}</td>
+                        <td>Profit Factor:</td>
+                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('profit_factor', 0)) }}</td>
                     </tr>
                     <tr>
-                        <td>Calmar Ratio:</td>
-                        <td class="text-end">{{ "%.2f"|format(results.risk_metrics.calmar_ratio) }}</td>
+                        <td>Max Drawdown:</td>
+                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('max_drawdown_percent', 0)) }}%</td>
                     </tr>
                     <tr>
-                        <td>Recovery Factor:</td>
-                        <td class="text-end">{{ "%.2f"|format(results.risk_metrics.recovery_factor) }}</td>
+                        <td>Avg Trade Duration:</td>
+                        <td class="text-end">{{ "%.1f"|format(results.advanced_metrics.get('avg_trade_duration_hours', 0)) }}h</td>
                     </tr>
                     <tr>
-                        <td>VaR (95%):</td>
-                        <td class="text-end">{{ "%.2f"|format(results.risk_metrics.var_95) }}%</td>
+                        <td>Max Consecutive Wins:</td>
+                        <td class="text-end">{{ results.advanced_metrics.get('max_consecutive_wins', 0) }}</td>
                     </tr>
                     <tr>
                         <td>Max Consecutive Losses:</td>
-                        <td class="text-end">{{ results.risk_metrics.max_consecutive_losses }}</td>
+                        <td class="text-end">{{ results.advanced_metrics.get('max_consecutive_losses', 0) }}</td>
                     </tr>
                     {% endif %}
                 </table>
@@ -186,19 +182,27 @@
 </div>
 
 <!-- История сделок -->
-{% if results.trade_history %}
+{% if results.get('trade_history') %}
 <div class="row mt-4">
     <div class="col-12">
         <div class="card">
-            <div class="card-header">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 <h6 class="card-title mb-0">
                     <i class="fas fa-list me-2"></i>
-                    История сделок
+                    История сделок (всего: {{ results.trade_history|length }})
                 </h6>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="showAllTrades()">
+                        <i class="fas fa-expand me-1"></i>Показать все
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="exportTradesToCsv()">
+                        <i class="fas fa-file-csv me-1"></i>Экспорт CSV
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
-                    <table class="table table-sm table-hover">
+                    <table class="table table-sm table-hover" id="tradesTable">
                         <thead>
                             <tr>
                                 <th>#</th>
@@ -211,43 +215,60 @@
                                 <th>Дата</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            {% for trade in results.trade_history[:20] %}
+                        <tbody id="tradesTableBody">
+                            {% for trade in results.trade_history[:50] %}
+                            {% set trade_type = trade.get('type') if trade is mapping else trade.type %}
+                            {% set entry_price = trade.get('entry_price', 0) if trade is mapping else trade.entry_price %}
+                            {% set exit_price = trade.get('exit_price', 0) if trade is mapping else trade.exit_price %}
+                            {% set volume = trade.get('volume', 0) if trade is mapping else trade.volume %}
+                            {% set pnl = trade.get('pnl', 0) if trade is mapping else trade.pnl %}
+                            {% set pnl_percent = trade.get('pnl_percent', 0) if trade is mapping else trade.pnl_percent %}
+                            {% set entry_time = trade.get('entry_time') if trade is mapping else trade.entry_time %}
                             <tr>
                                 <td>{{ loop.index }}</td>
                                 <td>
-                                    {% if trade.type == 'long' %}
+                                    {% if trade_type == 'long' %}
                                         <span class="badge bg-success">Long</span>
                                     {% else %}
                                         <span class="badge bg-danger">Short</span>
                                     {% endif %}
                                 </td>
-                                <td>${{ "%.2f"|format(trade.entry_price) }}</td>
-                                <td>${{ "%.2f"|format(trade.exit_price) }}</td>
-                                <td>{{ "%.4f"|format(trade.volume) }}</td>
-                                <td class="{% if trade.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
-                                    ${{ "%.2f"|format(trade.pnl) }}
+                                <td>${{ "%.2f"|format(entry_price) }}</td>
+                                <td>${{ "%.2f"|format(exit_price) }}</td>
+                                <td>{{ "%.4f"|format(volume) }}</td>
+                                <td class="{% if pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                    ${{ "%.2f"|format(pnl) }}
                                 </td>
-                                <td class="{% if trade.pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
-                                    {{ "%.2f"|format(trade.pnl_percent) }}%
+                                <td class="{% if pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                    {{ "%.2f"|format(pnl_percent) }}%
                                 </td>
                                 <td>
-                                    <small>{{ trade.entry_time.strftime('%d.%m %H:%M') if trade.entry_time else '-' }}</small>
+                                    <small>{{ entry_time if entry_time and entry_time is string else '-' }}</small>
                                 </td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
-                {% if results.trade_history|length > 20 %}
-                <div class="text-center mt-3">
-                    <small class="text-muted">Показаны первые 20 сделок из {{ results.trade_history|length }}</small>
+                {% if results.trade_history|length > 50 %}
+                <div class="text-center mt-3" id="loadMoreSection">
+                    <button class="btn btn-primary" onclick="loadMoreTrades()">
+                        <i class="fas fa-plus me-1"></i>Загрузить ещё 50 сделок
+                    </button>
+                    <div class="mt-2">
+                        <small class="text-muted">Показано <span id="shownTrades">50</span> из {{ results.trade_history|length }}</small>
+                    </div>
                 </div>
                 {% endif %}
             </div>
         </div>
     </div>
 </div>
+
+<!-- Скрываем все сделки в JSON для JavaScript -->
+<script type="application/json" id="allTradesData">
+{{ results.trade_history | tojson | safe }}
+</script>
 {% endif %}
 
 <!-- Действия -->
@@ -262,22 +283,22 @@
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-3">
-                        <button class="btn btn-outline-primary w-100" onclick="downloadReport()">
-                            <i class="fas fa-file-pdf me-2"></i>PDF отчет
+                    <div class="col-md-3 mb-2">
+                        <button class="btn btn-outline-primary w-100" onclick="viewFullReport()">
+                            <i class="fas fa-eye me-2"></i>Полный отчет
                         </button>
                     </div>
-                    <div class="col-md-3">
-                        <button class="btn btn-outline-success w-100" onclick="downloadCsv()">
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('download_csv', task_id=task_id) }}" class="btn btn-outline-success w-100">
                             <i class="fas fa-file-csv me-2"></i>CSV сделки
-                        </button>
+                        </a>
                     </div>
-                    <div class="col-md-3">
-                        <button class="btn btn-outline-info w-100" onclick="downloadJson()">
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('download_json', task_id=task_id) }}" class="btn btn-outline-info w-100">
                             <i class="fas fa-file-code me-2"></i>JSON данные
-                        </button>
+                        </a>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-3 mb-2">
                         <button class="btn btn-outline-warning w-100" onclick="shareResults()">
                             <i class="fas fa-share me-2"></i>Поделиться
                         </button>
@@ -291,33 +312,128 @@
 
 {% block extra_js %}
 <script>
-// Скачивание отчета
-async function downloadReport() {
+// Данные всех сделок
+let allTrades = [];
+let currentTradeIndex = 50;
+
+// Загружаем все сделки при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    const tradesDataElement = document.getElementById('allTradesData');
+    if (tradesDataElement) {
+        try {
+            allTrades = JSON.parse(tradesDataElement.textContent);
+        } catch (e) {
+            console.error('Error parsing trades data:', e);
+        }
+    }
+});
+
+// Загрузить ещё сделок
+function loadMoreTrades() {
+    const tbody = document.getElementById('tradesTableBody');
+    const endIndex = Math.min(currentTradeIndex + 50, allTrades.length);
+
+    for (let i = currentTradeIndex; i < endIndex; i++) {
+        const trade = allTrades[i];
+        const row = createTradeRow(trade, i + 1);
+        tbody.innerHTML += row;
+    }
+
+    currentTradeIndex = endIndex;
+    document.getElementById('shownTrades').textContent = currentTradeIndex;
+
+    if (currentTradeIndex >= allTrades.length) {
+        document.getElementById('loadMoreSection').style.display = 'none';
+    }
+}
+
+// Показать все сделки
+function showAllTrades() {
+    const tbody = document.getElementById('tradesTableBody');
+
+    for (let i = currentTradeIndex; i < allTrades.length; i++) {
+        const trade = allTrades[i];
+        const row = createTradeRow(trade, i + 1);
+        tbody.innerHTML += row;
+    }
+
+    currentTradeIndex = allTrades.length;
+    document.getElementById('shownTrades').textContent = currentTradeIndex;
+    document.getElementById('loadMoreSection').style.display = 'none';
+
+    showNotification(`Загружено все ${allTrades.length} сделок`, 'success');
+}
+
+// Создать строку таблицы для сделки
+function createTradeRow(trade, index) {
+    const tradeType = trade.type || trade.order_type || 'unknown';
+    const typeHtml = tradeType === 'long'
+        ? '<span class="badge bg-success">Long</span>'
+        : '<span class="badge bg-danger">Short</span>';
+
+    const pnl = trade.pnl || 0;
+    const pnlClass = pnl >= 0 ? 'text-success' : 'text-danger';
+    const entryTime = trade.entry_time || '-';
+
+    return `
+        <tr>
+            <td>${index}</td>
+            <td>${typeHtml}</td>
+            <td>$${(trade.entry_price || 0).toFixed(2)}</td>
+            <td>$${(trade.exit_price || 0).toFixed(2)}</td>
+            <td>${(trade.volume || trade.quantity || 0).toFixed(4)}</td>
+            <td class="${pnlClass}">$${pnl.toFixed(2)}</td>
+            <td class="${pnlClass}">${(trade.pnl_percent || 0).toFixed(2)}%</td>
+            <td><small>${entryTime}</small></td>
+        </tr>
+    `;
+}
+
+// Экспорт в CSV
+function exportTradesToCsv() {
+    if (!allTrades || allTrades.length === 0) {
+        showNotification('Нет сделок для экспорта', 'warning');
+        return;
+    }
+
+    let csv = 'Index,Type,Entry Price,Exit Price,Volume,PnL,PnL %,Entry Time,Exit Time\n';
+
+    allTrades.forEach((trade, index) => {
+        const tradeType = trade.type || trade.order_type || 'unknown';
+        csv += `${index + 1},${tradeType},${trade.entry_price},${trade.exit_price},${trade.volume || trade.quantity},${trade.pnl},${trade.pnl_percent},"${trade.entry_time}","${trade.exit_time}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trades_{{ task_id[:8] }}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+
+    showNotification('CSV файл скачан', 'success');
+}
+
+// Просмотр полного отчета
+async function viewFullReport() {
     try {
-        showNotification('Генерация PDF отчета...', 'info');
-        
+        showNotification('Генерация полного отчета...', 'info');
+
         const response = await fetch(`/api/generate-report/{{ task_id }}`);
         const result = await response.json();
-        
+
         if (result.success) {
-            showNotification('PDF отчет готов!', 'success');
-            // В реальном приложении здесь был бы редирект на скачивание
+            showNotification('Отчет сгенерирован!', 'success');
+            // Переходим на страницу просмотра отчета
+            setTimeout(() => {
+                window.location.href = `/report/${result.task_id}`;
+            }, 1000);
         } else {
             showNotification(`Ошибка: ${result.error}`, 'error');
         }
     } catch (error) {
         showNotification(`Ошибка: ${error.message}`, 'error');
     }
-}
-
-// Скачивание CSV
-function downloadCsv() {
-    showNotification('Функция скачивания CSV в разработке', 'info');
-}
-
-// Скачивание JSON
-function downloadJson() {
-    showNotification('Функция скачивания JSON в разработке', 'info');
 }
 
 // Поделиться результатами

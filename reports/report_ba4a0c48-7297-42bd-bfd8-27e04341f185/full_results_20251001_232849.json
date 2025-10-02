@@ -1,0 +1,115 @@
+{
+  "config": {
+    "start_balance": 1000,
+    "leverage": 1,
+    "order_type": "long",
+    "entry_conditions": {
+      "type": "immediate",
+      "trigger": null,
+      "percent": null,
+      "rsi_period": null
+    },
+    "first_order": {
+      "amount_percent": 10,
+      "amount_fixed": null,
+      "risk_percent": null
+    },
+    "dca": {
+      "enabled": true,
+      "max_orders": 5,
+      "martingale": {
+        "enabled": true,
+        "multiplier": 2,
+        "progression": "exponential"
+      },
+      "step_price": {
+        "type": "fixed_percent",
+        "value": 1.5,
+        "dynamic_multiplier": 1,
+        "atr_multiplier": null
+      }
+    },
+    "take_profit": {
+      "enabled": true,
+      "percent": 5,
+      "trailing": {
+        "enabled": false,
+        "activation_percent": 3,
+        "trail_percent": 1
+      }
+    },
+    "stop_loss": {
+      "enabled": true,
+      "percent": 10,
+      "trailing": {
+        "enabled": false,
+        "activation_percent": 2,
+        "trail_percent": 0.5
+      }
+    },
+    "risk_management": {
+      "max_drawdown_percent": 20,
+      "max_open_positions": 1,
+      "daily_loss_limit": null
+    },
+    "timeframe": "15m",
+    "start_date": null,
+    "end_date": null,
+    "data_source": {
+      "type": "csv",
+      "file": "data/FARTCOINUSDT:USDT_15m_20251001_224046.csv"
+    },
+    "symbol": "FARTCOINUSDT:USDT"
+  },
+  "basic_stats": {
+    "total_trades": 0,
+    "winning_trades": 0,
+    "losing_trades": 0,
+    "win_rate": 0,
+    "total_pnl": 0,
+    "average_pnl": 0,
+    "max_profit": 0,
+    "max_loss": 0,
+    "current_balance": 1000,
+    "total_return": 0,
+    "open_positions": 0
+  },
+  "advanced_metrics": {
+    "max_drawdown_percent": 0,
+    "sharpe_ratio": 0,
+    "profit_factor": 0,
+    "avg_trade_duration_hours": 0,
+    "total_fees": 0,
+    "max_consecutive_wins": 0,
+    "max_consecutive_losses": 0
+  },
+  "trade_history": [],
+  "execution_log": [],
+  "balance_history": [],
+  "data_summary": {
+    "symbol": "FARTCOINUSDT:USDT",
+    "records_count": 8641,
+    "date_range": {
+      "start": "2025-07-03 00:00:00",
+      "end": "2025-10-01 00:00:00"
+    },
+    "price_range": {
+      "min": 0.5355,
+      "max": 1.6954,
+      "first_close": 1.1504,
+      "last_close": 0.6185
+    },
+    "volume_stats": {
+      "total": 36647085551.0,
+      "average": 4241069.963082977,
+      "max": 126380204.0
+    }
+  },
+  "backtest_info": {
+    "start_time": 1759361305.4932196,
+    "end_time": 1759361305.7365286,
+    "duration_seconds": 0.24330973625183105,
+    "processed_ticks": 8621,
+    "total_ticks": 8641
+  }
+}

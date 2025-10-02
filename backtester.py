@@ -72,20 +72,22 @@ class Backtester:
         elif source_type == 'api':
             # Загрузка через API (CCXT)
             api_config = source_config.get('api', {})
-            
+
             exchange = api_config.get('exchange', 'binance')
             api_symbol = api_config.get('symbol', 'BTC/USDT')
             timeframe = self.config.get('timeframe', '1h')
             auto_save = api_config.get('auto_save', False)
-            
+            market_type = api_config.get('market_type', 'spot')
+
             print(f"Загрузка данных через API с биржи {exchange}...")
-            
+
             data = self.data_loader.load_from_api(
                 symbol=api_symbol,
                 timeframe=timeframe,
                 start_date=self.start_date,
                 end_date=self.end_date,
-                exchange=exchange
+                exchange=exchange,
+                market_type=market_type
             )
             
             # Автоматически сохраняем в CSV если включено

@@ -51,7 +51,15 @@
                                 </td>
                                 <td>
                                     <small class="text-muted">
-                                        {{ task.start_time.strftime('%d.%m.%Y %H:%M') }}
+                                        {% if task.start_time %}
+                                            {% if task.start_time is string %}
+                                                {{ task.start_time }}
+                                            {% else %}
+                                                {{ task.start_time.strftime('%d.%m.%Y %H:%M') }}
+                                            {% endif %}
+                                        {% else %}
+                                            -
+                                        {% endif %}
                                     </small>
                                 </td>
                                 <td>
@@ -62,9 +70,15 @@
                                         <button class="btn btn-sm btn-outline-success" onclick="downloadReport('{{ task.task_id }}')">
                                             <i class="fas fa-download me-1"></i>Отчет
                                         </button>
+                                        <button class="btn btn-sm btn-outline-danger" onclick="deleteBacktest('{{ task.task_id }}')">
+                                            <i class="fas fa-trash me-1"></i>Удалить
+                                        </button>
                                     {% elif task.status == 'error' %}
                                         <button class="btn btn-sm btn-outline-danger" onclick="showError('{{ task.task_id }}')">
                                             <i class="fas fa-exclamation-triangle me-1"></i>Ошибка
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" onclick="deleteBacktest('{{ task.task_id }}')">
+                                            <i class="fas fa-trash me-1"></i>Удалить
                                         </button>
                                     {% else %}
                                         <button class="btn btn-sm btn-outline-info" onclick="checkStatus('{{ task.task_id }}')">
@@ -293,10 +307,53 @@ function refreshResults() {
     window.location.reload();
 }
 
+// Удаление конкретного бэктеста
+async function deleteBacktest(taskId) {
+    if (!confirm('Вы уверены, что хотите удалить этот бэктест?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/backtest/${taskId}`, {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            showNotification('Бэктест успешно удален', 'success');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            showNotification(`Ошибка: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showNotification(`Ошибка удаления: ${error.message}`, 'error');
+    }
+}
+
 // Очистка старых результатов
-function clearOldResults() {
-    if (confirm('Удалить все завершенные бэктесты?')) {
-        showNotification('Функция очистки в разработке', 'info');
+async function clearOldResults() {
+    if (!confirm('Удалить все завершенные бэктесты?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/backtest/clear-all', {
+            method: 'DELETE'
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            showNotification(`Удалено ${result.deleted_count} бэктестов`, 'success');
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            showNotification(`Ошибка: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        showNotification(`Ошибка очистки: ${error.message}`, 'error');
     }
 }
 
