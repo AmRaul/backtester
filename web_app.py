@@ -995,6 +995,15 @@ def clear_all_backtests():
         print(f"[DELETE ERROR] Ошибка очистки бэктестов: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for container orchestration"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'version': '1.0.0'
+    }), 200
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({'error': 'Страница не найдена'}), 404
