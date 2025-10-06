@@ -129,9 +129,25 @@ dmypy.json
 .pyre/
 
 # Project specific
-logs/
-results/
-data/*.csv
+logs/*
+!logs/.gitkeep
+results/*
+!results/.gitkeep
+data/*
+!data/.gitkeep
+db/*
+!db/.gitkeep
+reports/*
+!reports/.gitkeep
 *.log
 .env
-config.json 
+config.json
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+.claude/
+
+# Debug files
+debug_calculations.py 
