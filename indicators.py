@@ -119,7 +119,7 @@ class TechnicalIndicators:
                            period: int = 10, multiplier: float = 3, cache_key: str = None) -> Tuple[pd.Series, pd.Series]:
         """
         Вычисляет SuperTrend индикатор
-        
+
         Args:
             high: серия максимальных цен
             low: серия минимальных цен
@@ -127,22 +127,40 @@ class TechnicalIndicators:
             period: период ATR для SuperTrend
             multiplier: множитель ATR
             cache_key: ключ для кэширования (опционально)
-            
+
         Returns:
             Tuple (supertrend_line, direction)
         """
         if cache_key and cache_key in self.cache:
             return self.cache[cache_key]
-        
-        # Используем библиотеку ta для SuperTrend
-        supertrend = ta.trend.SuperTrendIndicator(
-            high=high, low=low, close=close, 
-            period=period, multiplier=multiplier
-        )
-        
-        supertrend_line = supertrend.supertrend()
-        direction = supertrend.supertrend_signal()  # 1 для long, -1 для short
-        
+
+        # Реализуем SuperTrend вручную
+        # Вычисляем ATR
+        atr = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=period).average_true_range()
+
+        # Вычисляем базовые полосы
+        hl2 = (high + low) / 2
+        upper_band = hl2 + (multiplier * atr)
+        lower_band = hl2 - (multiplier * atr)
+
+        # Инициализируем массивы
+        supertrend_line = pd.Series(index=close.index, dtype=float)
+        direction = pd.Series(index=close.index, dtype=float)
+
+        # Первое значение
+        supertrend_line.iloc[0] = upper_band.iloc[0]
+        direction.iloc[0] = 1
+
+        # Вычисляем SuperTrend
+        for i in range(1, len(close)):
+            # Определяем направление тренда
+            if close.iloc[i] > supertrend_line.iloc[i-1]:
+                direction.iloc[i] = 1  # Восходящий тренд
+                supertrend_line.iloc[i] = lower_band.iloc[i] if lower_band.iloc[i] > supertrend_line.iloc[i-1] else supertrend_line.iloc[i-1]
+            else:
+                direction.iloc[i] = -1  # Нисходящий тренд
+                supertrend_line.iloc[i] = upper_band.iloc[i] if upper_band.iloc[i] < supertrend_line.iloc[i-1] else supertrend_line.iloc[i-1]
+
         result = (supertrend_line, direction)
         
         if cache_key:
