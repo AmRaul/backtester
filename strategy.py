@@ -650,6 +650,65 @@ class TradingStrategy:
         
         return True
     
+    def check_intrabar_exit(self, current_data: pd.Series, position: Position) -> Tuple[bool, str, float]:
+        """
+        Проверяет достижение TP/SL внутри свечи используя high/low
+
+        Args:
+            current_data: данные текущей свечи (должны содержать high, low, close)
+            position: открытая позиция
+
+        Returns:
+            Tuple (сработал_exit, причина, цена_выхода)
+        """
+        if not position:
+            return False, "", 0.0
+
+        high = current_data.get('high', current_data['close'])
+        low = current_data.get('low', current_data['close'])
+        close = current_data['close']
+        avg_price = position.average_price
+
+        if position.order_type == OrderType.LONG:
+            # Рассчитываем уровни TP и SL
+            tp_price = None
+            sl_price = None
+
+            if self.tp_enabled:
+                tp_price = avg_price * (1 + self.take_profit_percent)
+            if self.sl_enabled:
+                sl_price = avg_price * (1 - self.stop_loss_percent)
+
+            # Проверяем что произошло раньше на этой свече
+            # Важно: нужно определить последовательность событий
+
+            # Если свеча растущая (close > open), сначала проверяем TP
+            # Если свеча падающая (close < open), сначала проверяем SL
+
+            # Упрощенная логика: проверяем что HIGH достиг TP или LOW достиг SL
+            if tp_price and high >= tp_price:
+                return True, "take_profit", tp_price
+            elif sl_price and low <= sl_price:
+                return True, "stop_loss", sl_price
+
+        else:  # SHORT
+            # Для шорта наоборот
+            tp_price = None
+            sl_price = None
+
+            if self.tp_enabled:
+                tp_price = avg_price * (1 - self.take_profit_percent)
+            if self.sl_enabled:
+                sl_price = avg_price * (1 + self.stop_loss_percent)
+
+            # Проверяем LOW для TP и HIGH для SL в шорте
+            if tp_price and low <= tp_price:
+                return True, "take_profit", tp_price
+            elif sl_price and high >= sl_price:
+                return True, "stop_loss", sl_price
+
+        return False, "", 0.0
+
     def should_close_position(self, current_price: float, position: Position) -> Tuple[bool, str]:
         """
         Определяет, следует ли закрыть позицию с учетом trailing stops
@@ -925,17 +984,33 @@ class TradingStrategy:
                         'timestamp': timestamp
                     })
         
-        # Проверяем обычные условия выхода (включая просадку)
+        # СНАЧАЛА проверяем внутрисвечный выход через high/low (приоритет!)
+        if self.has_open_position():
+            position = self.get_open_position()
+            intrabar_exit, reason, exit_price = self.check_intrabar_exit(current_data, position)
+
+            if intrabar_exit:
+                trade_info = self.close_position(exit_price, timestamp, reason)
+                actions.append({
+                    'action': 'close_position',
+                    'trade_info': trade_info,
+                    'timestamp': timestamp,
+                    'exit_type': 'intrabar'  # Пометка что выход внутри свечи
+                })
+                return actions
+
+        # ПОТОМ проверяем обычные условия выхода (trailing stops, просадка и т.д.)
         if self.has_open_position():
             position = self.get_open_position()
             should_close, reason = self.should_close_position(current_price, position)
-            
+
             if should_close:
                 trade_info = self.close_position(current_price, timestamp, reason)
                 actions.append({
                     'action': 'close_position',
                     'trade_info': trade_info,
-                    'timestamp': timestamp
+                    'timestamp': timestamp,
+                    'exit_type': 'close_price'  # Выход по цене закрытия
                 })
                 return actions  # Прерываем выполнение при закрытии позиции
         
