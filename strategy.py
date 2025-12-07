@@ -151,6 +151,10 @@ class TradingStrategy:
         self.trailing_tp_price = None
         self.trailing_sl_price = None
         self.peak_balance = self.balance
+
+        # Для dual timeframe режима (эмуляция Bar Magnifier)
+        self.last_processed_strategy_bar = None  # timestamp последней обработанной strategy свечи
+        self.calc_on_order_fills = False  # Эмуляция PineScript calc_on_order_fills
         
         # Инициализация индикаторов
         self.indicators_enabled = False
@@ -936,24 +940,24 @@ class TradingStrategy:
     
     def process_tick(self, current_data: pd.Series, historical_data: pd.DataFrame) -> List[dict]:
         """
-        Обрабатывает один тик данных
-        
+        Обрабатывает один тик данных (single timeframe режим)
+
         Args:
             current_data: текущие данные
             historical_data: исторические данные
-            
+
         Returns:
             Список действий, выполненных на этом тике
         """
         actions = []
         current_price = current_data['close']
         timestamp = current_data['timestamp']
-        
+
         # Обновляем нереализованную прибыль для открытых позиций
         if self.has_open_position():
             position = self.get_open_position()
             position.update_unrealized_pnl(current_price)
-        
+
         # Проверяем условия входа
         if self.should_enter_position(current_data, historical_data):
             order = self.create_order(timestamp, current_price)
@@ -965,15 +969,15 @@ class TradingStrategy:
                     'quantity': order.quantity,
                     'timestamp': timestamp
                 })
-        
+
         # Проверяем DCA условия
         elif self.has_open_position():
             position = self.get_open_position()
-            
+
             if self.should_add_dca_order(current_price, position, historical_data):
                 dca_level = sum(1 for order in position.orders if order.is_dca) + 1
                 dca_order = self.create_order(timestamp, current_price, is_dca=True, dca_level=dca_level)
-                
+
                 if self.execute_order(dca_order):
                     actions.append({
                         'action': 'dca_order',
@@ -983,7 +987,7 @@ class TradingStrategy:
                         'dca_level': dca_level,
                         'timestamp': timestamp
                     })
-        
+
         # СНАЧАЛА проверяем внутрисвечный выход через high/low (приоритет!)
         if self.has_open_position():
             position = self.get_open_position()
@@ -1013,12 +1017,12 @@ class TradingStrategy:
                     'exit_type': 'close_price'  # Выход по цене закрытия
                 })
                 return actions  # Прерываем выполнение при закрытии позиции
-        
+
         # Проверяем margin call и ликвидацию (только если позиция еще открыта)
         if self.has_open_position():
             position = self.get_open_position()
             margin_call, margin_reason = self.check_margin_call(position, current_price)
-            
+
             if margin_call:
                 trade_info = self.close_position(current_price, timestamp, margin_reason)
                 actions.append({
@@ -1028,7 +1032,129 @@ class TradingStrategy:
                     'reason': margin_reason
                 })
                 return actions  # Прерываем выполнение при ликвидации
-        
+
+        return actions
+
+    def process_tick_dual(self,
+                         current_exec_data: pd.Series,
+                         historical_exec_data: pd.DataFrame,
+                         current_strategy_data: pd.Series,
+                         historical_strategy_data: pd.DataFrame) -> List[dict]:
+        """
+        Обрабатывает один тик в dual timeframe режиме (эмуляция TradingView Bar Magnifier)
+
+        Логика как в PineScript:
+        - Сигналы входа проверяются ТОЛЬКО при новой strategy свече
+        - TP/SL проверяются на КАЖДОЙ execution свече
+        - calc_on_order_fills: после закрытия можно проверить новый сигнал
+
+        Args:
+            current_exec_data: текущие execution данные (1m)
+            historical_exec_data: исторические execution данные (1m)
+            current_strategy_data: текущие strategy данные (15m)
+            historical_strategy_data: исторические strategy данные (15m)
+
+        Returns:
+            Список действий, выполненных на этом тике
+        """
+        actions = []
+        current_price = current_exec_data['close']
+        timestamp = current_exec_data['timestamp']
+        strategy_bar_timestamp = current_strategy_data['timestamp']
+
+        # Обновляем нереализованную прибыль для открытых позиций
+        if self.has_open_position():
+            position = self.get_open_position()
+            position.update_unrealized_pnl(current_price)
+
+        # ✅ ПРАВИЛЬНО: Определяем новую strategy свечу (как в Bar Magnifier)
+        is_new_strategy_bar = (
+            self.last_processed_strategy_bar is None or
+            strategy_bar_timestamp > self.last_processed_strategy_bar
+        )
+
+        # ✅ Проверяем сигналы входа ТОЛЬКО при новой strategy свече (как в PineScript)
+        if is_new_strategy_bar:
+            self.last_processed_strategy_bar = strategy_bar_timestamp
+
+            # Проверяем условия входа ТОЛЬКО на новой strategy свече
+            if not self.has_open_position():
+                if self.should_enter_position(current_strategy_data, historical_strategy_data):
+                    # Входим сразу по текущей execution цене
+                    order = self.create_order(timestamp, current_price)
+                    if self.execute_order(order):
+                        actions.append({
+                            'action': 'open_position',
+                            'order_id': order.id,
+                            'price': current_price,
+                            'quantity': order.quantity,
+                            'timestamp': timestamp
+                        })
+
+        # ✅ DCA проверяем на каждой execution свече (цена может упасть между strategy свечами)
+        if self.has_open_position():
+            position = self.get_open_position()
+
+            if self.should_add_dca_order(current_price, position, historical_strategy_data):
+                dca_level = sum(1 for order in position.orders if order.is_dca) + 1
+                dca_order = self.create_order(timestamp, current_price, is_dca=True, dca_level=dca_level)
+
+                if self.execute_order(dca_order):
+                    actions.append({
+                        'action': 'dca_order',
+                        'order_id': dca_order.id,
+                        'price': current_price,
+                        'quantity': dca_order.quantity,
+                        'dca_level': dca_level,
+                        'timestamp': timestamp
+                    })
+
+        # ✅ TP/SL проверяем на КАЖДОЙ execution свече (как в Bar Magnifier!)
+        if self.has_open_position():
+            position = self.get_open_position()
+            should_close, reason = self.should_close_position(current_price, position)
+
+            if should_close:
+                trade_info = self.close_position(current_price, timestamp, reason)
+                actions.append({
+                    'action': 'close_position',
+                    'trade_info': trade_info,
+                    'timestamp': timestamp,
+                    'exit_type': 'execution_price'
+                })
+
+                # ✅ Эмуляция calc_on_order_fills (как в PineScript)
+                # После закрытия позиции можем сразу проверить новый сигнал на текущей strategy свече
+                if self.calc_on_order_fills and not is_new_strategy_bar:
+                    # Проверяем можем ли войти снова
+                    if self.should_enter_position(current_strategy_data, historical_strategy_data):
+                        order = self.create_order(timestamp, current_price)
+                        if self.execute_order(order):
+                            actions.append({
+                                'action': 'open_position',
+                                'order_id': order.id,
+                                'price': current_price,
+                                'quantity': order.quantity,
+                                'timestamp': timestamp
+                            })
+
+                return actions  # Прерываем выполнение при закрытии позиции
+
+        # ✅ Margin call проверяем на каждой execution свече
+        if self.has_open_position():
+            position = self.get_open_position()
+            margin_call, margin_reason = self.check_margin_call(position, current_price)
+
+            if margin_call:
+                trade_info = self.close_position(current_price, timestamp, margin_reason)
+                actions.append({
+                    'action': 'margin_call',
+                    'trade_info': trade_info,
+                    'timestamp': timestamp,
+                    'reason': margin_reason
+                })
+                return actions
+
         return actions
     
     def get_statistics(self) -> dict:

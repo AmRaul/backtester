@@ -423,15 +423,141 @@ class DataLoader:
         
         return validation_results
     
+    def resample_to_timeframe(self, data: pd.DataFrame, target_timeframe: str) -> pd.DataFrame:
+        """
+        Ресемплирует данные в целевой таймфрейм
+
+        Args:
+            data: DataFrame с OHLCV данными
+            target_timeframe: целевой таймфрейм ('5m', '15m', '1h', etc.)
+
+        Returns:
+            DataFrame с ресемплированными данными
+        """
+        # Конвертируем таймфрейм в pandas offset
+        timeframe_map = {
+            '1m': '1T',
+            '3m': '3T',
+            '5m': '5T',
+            '15m': '15T',
+            '30m': '30T',
+            '1h': '1H',
+            '2h': '2H',
+            '4h': '4H',
+            '6h': '6H',
+            '8h': '8H',
+            '12h': '12H',
+            '1d': '1D',
+            '3d': '3D',
+            '1w': '1W',
+            '1M': '1M'
+        }
+
+        if target_timeframe not in timeframe_map:
+            raise ValueError(f"Неподдерживаемый таймфрейм: {target_timeframe}")
+
+        offset = timeframe_map[target_timeframe]
+
+        # Устанавливаем timestamp как индекс
+        df_resampled = data.set_index('timestamp').resample(offset).agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        }).dropna().reset_index()
+
+        return df_resampled
+
+    def get_parent_candle_index(self, timestamp_1m: pd.Timestamp, data_strategy_tf: pd.DataFrame) -> int:
+        """
+        Находит индекс последней ЗАКРЫТОЙ свечи стратегического таймфрейма
+        для данного 1m тика (избегает look-ahead bias)
+
+        Args:
+            timestamp_1m: timestamp 1m тика
+            data_strategy_tf: DataFrame стратегического таймфрейма (15m, 1h, etc.)
+
+        Returns:
+            Индекс родительской свечи в data_strategy_tf
+        """
+        # Находим все свечи которые ЗАКРЫЛИСЬ до или в момент timestamp_1m
+        closed_candles = data_strategy_tf[data_strategy_tf['timestamp'] <= timestamp_1m]
+
+        if closed_candles.empty:
+            return -1  # Нет закрытых свечей
+
+        # Возвращаем индекс последней закрытой свечи
+        return closed_candles.index[-1]
+
+    def load_dual_timeframe(self,
+                           symbol: str,
+                           strategy_timeframe: str,
+                           execution_timeframe: str,
+                           start_date: str = None,
+                           end_date: str = None,
+                           exchange: str = 'binance',
+                           market_type: str = 'spot') -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Загружает данные для multi-timeframe бэктестинга
+
+        Args:
+            symbol: торговая пара (например, 'BTC/USDT')
+            strategy_timeframe: таймфрейм для индикаторов ('15m', '1h', etc.)
+            execution_timeframe: таймфрейм для исполнения ('1m', '5m')
+            start_date: начальная дата
+            end_date: конечная дата
+            exchange: название биржи
+            market_type: тип рынка ('spot', 'futures', 'swap')
+
+        Returns:
+            Tuple (execution_data, strategy_data):
+                - execution_data: DataFrame с данными execution таймфрейма
+                - strategy_data: DataFrame с данными strategy таймфрейма
+        """
+        print(f"\n{'='*60}")
+        print(f"ЗАГРУЗКА DUAL TIMEFRAME ДАННЫХ")
+        print(f"{'='*60}")
+        print(f"Exchange: {exchange}")
+        print(f"Символ: {symbol}")
+        print(f"Execution TF: {execution_timeframe}")
+        print(f"Strategy TF: {strategy_timeframe}")
+        print(f"Период: {start_date} - {end_date}")
+        print(f"{'='*60}\n")
+
+        # Загружаем данные execution таймфрейма (самый мелкий)
+        execution_data = self.load_from_api(
+            symbol=symbol,
+            timeframe=execution_timeframe,
+            start_date=start_date,
+            end_date=end_date,
+            exchange=exchange,
+            market_type=market_type
+        )
+
+        print(f"\n{'='*60}")
+        print(f"РЕСЕМПЛИНГ В STRATEGY TIMEFRAME")
+        print(f"{'='*60}")
+
+        # Ресемплируем в strategy таймфрейм
+        strategy_data = self.resample_to_timeframe(execution_data, strategy_timeframe)
+
+        print(f"Execution данные ({execution_timeframe}): {len(execution_data)} свечей")
+        print(f"Strategy данные ({strategy_timeframe}): {len(strategy_data)} свечей")
+        print(f"Соотношение: {len(execution_data) / len(strategy_data):.1f}:1")
+        print(f"{'='*60}\n")
+
+        return execution_data, strategy_data
+
     def get_summary(self) -> dict:
         """
         Возвращает сводную информацию о данных
         """
         if self.data is None:
             raise ValueError("Данные не загружены")
-        
+
         df = self.data
-        
+
         return {
             'symbol': self.symbol,
             'records_count': len(df),

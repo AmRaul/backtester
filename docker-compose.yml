@@ -13,10 +13,13 @@ services:
       - ./reports:/app/reports
       - ./logs:/app/logs
       - ./db:/app/db
+      - ./results:/app/results
       - ./templates:/app/templates
       - ./web_app.py:/app/web_app.py
       - ./strategy.py:/app/strategy.py
       - ./backtester.py:/app/backtester.py
+      - ./data_loader.py:/app/data_loader.py
+      - ./visualizer.py:/app/visualizer.py
       - ./config.json:/app/config.json
       - ./config_examples.json:/app/config_examples.json
       - ./config_api_examples.json:/app/config_api_examples.json

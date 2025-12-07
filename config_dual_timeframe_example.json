@@ -1,0 +1,155 @@
+{
+  "dual_tf_btc_15m_1m": {
+    "start_balance": 1000,
+    "leverage": 1,
+    "order_type": "long",
+
+    "timeframe": "15m",
+    "execution_timeframe": "1m",
+
+    "entry_conditions": {
+      "type": "manual",
+      "trigger": "price_drop",
+      "percent": 2
+    },
+
+    "first_order": {
+      "amount_percent": 10,
+      "amount_fixed": null,
+      "risk_percent": null
+    },
+
+    "dca": {
+      "enabled": true,
+      "max_orders": 3,
+      "martingale": {
+        "enabled": true,
+        "multiplier": 2.0,
+        "progression": "exponential"
+      },
+      "step_price": {
+        "type": "fixed_percent",
+        "value": 1.5,
+        "dynamic_multiplier": 1.0,
+        "atr_multiplier": null
+      }
+    },
+
+    "take_profit": {
+      "enabled": true,
+      "percent": 5,
+      "trailing": {
+        "enabled": false,
+        "activation_percent": 3,
+        "trail_percent": 1
+      }
+    },
+
+    "stop_loss": {
+      "enabled": true,
+      "percent": 3,
+      "trailing": {
+        "enabled": false,
+        "activation_percent": 2,
+        "trail_percent": 0.5
+      }
+    },
+
+    "risk_management": {
+      "max_drawdown_percent": 20,
+      "max_open_positions": 1,
+      "daily_loss_limit": null
+    },
+
+    "symbol": "BTCUSDT",
+    "data_source": {
+      "type": "api",
+      "api": {
+        "exchange": "binance",
+        "symbol": "BTC/USDT",
+        "market_type": "spot",
+        "auto_save": false
+      }
+    },
+
+    "start_date": "2024-12-01",
+    "end_date": "2024-12-07"
+  },
+
+  "dual_tf_eth_1h_5m": {
+    "start_balance": 1000,
+    "leverage": 2,
+    "order_type": "long",
+
+    "timeframe": "1h",
+    "execution_timeframe": "5m",
+
+    "entry_conditions": {
+      "type": "manual",
+      "trigger": "price_drop",
+      "percent": 3
+    },
+
+    "first_order": {
+      "amount_percent": 15,
+      "amount_fixed": null,
+      "risk_percent": null
+    },
+
+    "dca": {
+      "enabled": true,
+      "max_orders": 5,
+      "martingale": {
+        "enabled": true,
+        "multiplier": 1.8,
+        "progression": "exponential"
+      },
+      "step_price": {
+        "type": "fixed_percent",
+        "value": 2.0,
+        "dynamic_multiplier": 1.0,
+        "atr_multiplier": null
+      }
+    },
+
+    "take_profit": {
+      "enabled": true,
+      "percent": 6,
+      "trailing": {
+        "enabled": true,
+        "activation_percent": 4,
+        "trail_percent": 1.2
+      }
+    },
+
+    "stop_loss": {
+      "enabled": true,
+      "percent": 4,
+      "trailing": {
+        "enabled": false,
+        "activation_percent": 3,
+        "trail_percent": 0.8
+      }
+    },
+
+    "risk_management": {
+      "max_drawdown_percent": 25,
+      "max_open_positions": 1,
+      "daily_loss_limit": null
+    },
+
+    "symbol": "ETHUSDT",
+    "data_source": {
+      "type": "api",
+      "api": {
+        "exchange": "binance",
+        "symbol": "ETH/USDT",
+        "market_type": "spot",
+        "auto_save": false
+      }
+    },
+
+    "start_date": "2024-11-01",
+    "end_date": "2024-12-01"
+  }
+}

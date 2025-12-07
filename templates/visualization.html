@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}Визуализация бэктеста{% endblock %}
+
+{% block content %}
+<!-- Загружаем Plotly синхронно -->
+<script src="https://cdn.plot.ly/plotly-3.3.0.min.js"></script>
+
+<!-- Отладочная информация -->
+<div class="container-fluid mb-2">
+    <div class="alert alert-info" id="debug-info" style="font-family: monospace; font-size: 12px;">
+        <strong>🔍 Отладка:</strong> <span id="debug-text">Инициализация...</span>
+    </div>
+</div>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h2><i class="fas fa-chart-line me-2"></i>Интерактивная визуализация</h2>
+            <p class="text-muted">Task ID: {{ task_id }}</p>
+        </div>
+    </div>
+
+    <!-- Кнопки выбора типа графика -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="btn-group" role="group" aria-label="Тип графика">
+                <button type="button" class="btn btn-primary active" data-chart-type="all">
+                    <i class="fas fa-th me-1"></i>Все графики
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-chart-type="price">
+                    <i class="fas fa-candlestick me-1"></i>Цена и сделки
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-chart-type="balance">
+                    <i class="fas fa-dollar-sign me-1"></i>Баланс
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-chart-type="pnl">
+                    <i class="fas fa-chart-bar me-1"></i>PnL
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-chart-type="drawdown">
+                    <i class="fas fa-chart-area me-1"></i>Просадка
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-chart-type="distribution">
+                    <i class="fas fa-chart-pie me-1"></i>Распределение
+                </button>
+            </div>
+            <button type="button" class="btn btn-outline-secondary ms-3" onclick="window.location.href='/results/{{ task_id }}'">
+                <i class="fas fa-arrow-left me-1"></i>Назад к результатам
+            </button>
+        </div>
+    </div>
+
+    <!-- Индикатор загрузки -->
+    <div class="row mb-4" id="loading-indicator" style="display: none;">
+        <div class="col-12 text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Загрузка...</span>
+            </div>
+            <p class="mt-2">Создание графика...</p>
+        </div>
+    </div>
+
+    <!-- Контейнер для графика -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow">
+                <div class="card-body p-0">
+                    <div id="plotly-chart-container">
+                        <!-- График будет загружен сюда -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Информация -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Совет:</strong> Используйте мышь для масштабирования и перемещения по графику.
+                Наведите курсор на точки для получения детальной информации.
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .btn-group .btn {
+        transition: all 0.3s ease;
+    }
+
+    #plotly-chart-container {
+        min-height: 800px;
+        height: 800px;
+        background: #ffffff;
+    }
+
+    #plotly-chart {
+        width: 100%;
+        height: 100%;
+    }
+
+    .card {
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+</style>
+
+<script>
+    const taskId = '{{ task_id }}';
+    let currentChartType = 'all';
+
+    // Функция обновления отладочной информации
+    function updateDebug(text) {
+        const debugEl = document.getElementById('debug-text');
+        if (debugEl) {
+            debugEl.innerHTML = text;
+        }
+        console.log('[Debug]', text);
+    }
+
+    // Функция ожидания загрузки Plotly
+    function waitForPlotly(callback, maxAttempts = 50) {
+        let attempts = 0;
+        updateDebug('Ожидание загрузки Plotly...');
+
+        const checkInterval = setInterval(() => {
+            attempts++;
+            if (typeof Plotly !== 'undefined') {
+                clearInterval(checkInterval);
+                console.log('[Visualization] Plotly загружен!');
+                updateDebug('✅ Plotly загружен! Версия: ' + Plotly.version);
+                callback();
+            } else if (attempts >= maxAttempts) {
+                clearInterval(checkInterval);
+                console.error('[Visualization] Plotly не загрузился после', maxAttempts, 'попыток');
+                updateDebug('❌ Plotly не загрузился');
+                showError('Не удалось загрузить библиотеку Plotly. Проверьте подключение к интернету.');
+            }
+        }, 100);
+    }
+
+    // Загружаем график при загрузке страницы
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Visualization] DOM загружен');
+
+        // Ждем пока Plotly загрузится
+        waitForPlotly(function() {
+            loadVisualization('all');
+        });
+
+        // Обработчики кнопок выбора типа графика
+        document.querySelectorAll('[data-chart-type]').forEach(button => {
+            button.addEventListener('click', function() {
+                const chartType = this.dataset.chartType;
+
+                // Обновляем активную кнопку
+                document.querySelectorAll('[data-chart-type]').forEach(btn => {
+                    btn.classList.remove('btn-primary', 'active');
+                    btn.classList.add('btn-outline-primary');
+                });
+                this.classList.remove('btn-outline-primary');
+                this.classList.add('btn-primary', 'active');
+
+                // Загружаем график
+                loadVisualization(chartType);
+            });
+        });
+    });
+
+    function loadVisualization(chartType) {
+        currentChartType = chartType;
+
+        console.log('[Visualization] Загрузка графика:', chartType);
+        updateDebug('📥 Загрузка графика: ' + chartType);
+
+        // Показываем индикатор загрузки
+        document.getElementById('loading-indicator').style.display = 'block';
+        document.getElementById('plotly-chart-container').innerHTML = '';
+
+        const url = `/api/visualization/${taskId}?type=${chartType}`;
+        console.log('[Visualization] URL:', url);
+        updateDebug('🌐 Запрос к API...');
+
+        // Запрос к API
+        fetch(url)
+            .then(response => {
+                console.log('[Visualization] Response status:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('[Visualization] Данные получены:', {
+                    success: data.success,
+                    chart_type: data.chart_type,
+                    has_graph: !!data.graph_json
+                });
+
+                updateDebug('📊 Данные получены, обработка...');
+
+                // Скрываем индикатор загрузки
+                document.getElementById('loading-indicator').style.display = 'none';
+
+                if (data.success && data.graph_json) {
+                    try {
+                        // Парсим JSON с данными графика
+                        const graphData = JSON.parse(data.graph_json);
+                        console.log('[Visualization] График распарсен, traces:', graphData.data.length);
+                        updateDebug('🔧 Парсинг данных: ' + graphData.data.length + ' traces');
+
+                        // Очищаем контейнер и создаем div для графика
+                        const container = document.getElementById('plotly-chart-container');
+                        container.innerHTML = '<div id="plotly-chart" style="width:100%;height:100%;"></div>';
+
+                        updateDebug('🎨 Отрисовка графика...');
+
+                        // Отрисовываем график используя Plotly
+                        Plotly.newPlot('plotly-chart', graphData.data, graphData.layout, {
+                            responsive: true,
+                            displayModeBar: true,
+                            modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+                            displaylogo: false
+                        }).then(() => {
+                            console.log('[Visualization] ✅ График отрисован успешно!');
+                            updateDebug('✅ График отрисован успешно! Можно скрыть это сообщение.');
+                        }).catch(err => {
+                            console.error('[Visualization] ❌ Ошибка отрисовки:', err);
+                            updateDebug('❌ Ошибка отрисовки: ' + err.message);
+                            showError('Ошибка отрисовки графика: ' + err.message);
+                        });
+
+                    } catch (err) {
+                        console.error('[Visualization] ❌ Ошибка парсинга:', err);
+                        updateDebug('❌ Ошибка парсинга: ' + err.message);
+                        showError('Ошибка обработки данных графика: ' + err.message);
+                    }
+                } else {
+                    updateDebug('❌ Ошибка: ' + (data.error || 'Нет данных'));
+                    showError(data.error || 'Ошибка загрузки визуализации');
+                }
+            })
+            .catch(error => {
+                console.error('[Visualization] Ошибка:', error);
+                document.getElementById('loading-indicator').style.display = 'none';
+                showError('Ошибка подключения к серверу: ' + error.message);
+            });
+    }
+
+    function showError(message) {
+        document.getElementById('plotly-chart-container').innerHTML = `
+            <div class="alert alert-danger m-4">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>Ошибка:</strong> ${message}
+            </div>
+        `;
+    }
+</script>
+{% endblock %}

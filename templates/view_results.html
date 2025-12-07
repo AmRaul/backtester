@@ -15,6 +15,9 @@
                     </h5>
                     <div>
                         <span class="badge bg-light text-dark me-2">ID: {{ task_id[:8] }}...</span>
+                        <a href="{{ url_for('visualization_page', task_id=task_id) }}" class="btn btn-success btn-sm me-2">
+                            <i class="fas fa-chart-line me-1"></i>Интерактивная визуализация
+                        </a>
                         <a href="{{ url_for('results_page') }}" class="btn btn-outline-light btn-sm">
                             <i class="fas fa-arrow-left me-1"></i>Назад к списку
                         </a>

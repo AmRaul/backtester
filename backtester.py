@@ -7,6 +7,7 @@ import time
 
 from data_loader import DataLoader
 from strategy import TradingStrategy
+from visualizer import BacktestVisualizer
 
 class Backtester:
     """
@@ -16,7 +17,7 @@ class Backtester:
     def __init__(self, config_path: str = None, config_dict: dict = None):
         """
         Инициализация бэктестера
-        
+
         Args:
             config_path: путь к файлу конфигурации JSON
             config_dict: словарь с конфигурацией (альтернатива файлу)
@@ -28,18 +29,23 @@ class Backtester:
             self.config = config_dict
         else:
             raise ValueError("Необходимо указать либо config_path, либо config_dict")
-        
+
         self.data_loader = DataLoader()
         self.strategy = TradingStrategy(self.config)
         self.results = {}
         self.execution_log = []
-        
+
         # Параметры бэктеста
         self.start_date = self.config.get('start_date')
         self.end_date = self.config.get('end_date')
         self.data_source = self.config.get('data_source', {})
         self.symbol = self.config.get('symbol', 'UNKNOWN')
-        
+
+        # Dual timeframe параметры
+        self.use_dual_timeframe = False
+        self.execution_data = None
+        self.strategy_data = None
+
         # Для отслеживания прогресса
         self.total_ticks = 0
         self.processed_ticks = 0
@@ -48,97 +54,159 @@ class Backtester:
     def load_data(self, data_source: dict = None) -> pd.DataFrame:
         """
         Загружает исторические данные для бэктеста из различных источников
-        
+        Поддерживает dual timeframe режим
+
         Args:
             data_source: конфигурация источника данных (опционально)
-            
+
         Returns:
-            DataFrame с загруженными данными
+            DataFrame с загруженными данными (execution timeframe если dual mode)
         """
         source_config = data_source or self.data_source
         source_type = source_config.get('type', 'csv')
-        
-        data = None
-        
-        if source_type == 'csv':
-            # Загрузка из CSV файла
-            file_path = source_config.get('file')
-            if not file_path:
-                raise ValueError("Не указан файл с данными")
-            
-            print(f"Загрузка данных из CSV: {file_path}...")
-            data = self.data_loader.load_from_csv(file_path, self.symbol)
-            
-        elif source_type == 'api':
-            # Загрузка через API (CCXT)
-            api_config = source_config.get('api', {})
 
+        # Проверяем dual timeframe режим
+        execution_timeframe = self.config.get('execution_timeframe')
+        strategy_timeframe = self.config.get('timeframe', '15m')
+
+        if execution_timeframe and execution_timeframe != strategy_timeframe:
+            # DUAL TIMEFRAME MODE
+            self.use_dual_timeframe = True
+
+            if source_type != 'api':
+                raise ValueError("Dual timeframe режим поддерживается только для API источника данных")
+
+            api_config = source_config.get('api', {})
             exchange = api_config.get('exchange', 'binance')
             api_symbol = api_config.get('symbol', 'BTC/USDT')
-            timeframe = self.config.get('timeframe', '1h')
-            auto_save = api_config.get('auto_save', False)
             market_type = api_config.get('market_type', 'spot')
 
-            print(f"Загрузка данных через API с биржи {exchange}...")
-
-            data = self.data_loader.load_from_api(
+            # Загружаем dual timeframe данные
+            self.execution_data, self.strategy_data = self.data_loader.load_dual_timeframe(
                 symbol=api_symbol,
-                timeframe=timeframe,
+                strategy_timeframe=strategy_timeframe,
+                execution_timeframe=execution_timeframe,
                 start_date=self.start_date,
                 end_date=self.end_date,
                 exchange=exchange,
                 market_type=market_type
             )
-            
-            # Автоматически сохраняем в CSV если включено
-            if auto_save:
-                saved_file = self.data_loader.save_to_csv()
-                print(f"Данные автоматически сохранены в {saved_file}")
-        
+
+            # Автосохранение
+            if api_config.get('auto_save', False):
+                exec_file = self.data_loader.save_to_csv(
+                    filename=f"data/{self.symbol}_{execution_timeframe}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    data=self.execution_data
+                )
+                strat_file = self.data_loader.save_to_csv(
+                    filename=f"data/{self.symbol}_{strategy_timeframe}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    data=self.strategy_data
+                )
+                print(f"Данные сохранены: {exec_file}, {strat_file}")
+
+            self.total_ticks = len(self.execution_data)
+            print(f"✅ Dual timeframe режим активирован")
+            print(f"Execution TF ({execution_timeframe}): {len(self.execution_data)} тиков")
+            print(f"Strategy TF ({strategy_timeframe}): {len(self.strategy_data)} свечей\n")
+
+            return self.execution_data
+
         else:
-            raise ValueError(f"Неподдерживаемый тип источника данных: {source_type}")
-        
-        if data is None or data.empty:
-            raise ValueError("Не удалось загрузить данные")
-        
-        # Фильтруем по дате если указано (для CSV данных)
-        if source_type == 'csv' and (self.start_date or self.end_date):
-            print(f"Фильтрация данных по периоду: {self.start_date} - {self.end_date}")
-            data = self.data_loader.filter_by_date(self.start_date, self.end_date)
-        
-        # Проверяем качество данных
-        validation = self.data_loader.validate_data()
-        if validation['missing_values']:
-            print(f"Предупреждение: найдены пропущенные значения: {validation['missing_values']}")
-        
-        if validation['price_anomalies'] > 0:
-            print(f"Предупреждение: найдено {validation['price_anomalies']} аномалий в ценах")
-        
-        self.total_ticks = len(data)
-        print(f"Подготовлено {self.total_ticks} тиков для бэктеста")
-        
-        return data
+            # SINGLE TIMEFRAME MODE (как было раньше)
+            self.use_dual_timeframe = False
+            data = None
+
+            if source_type == 'csv':
+                # Загрузка из CSV файла
+                file_path = source_config.get('file')
+                if not file_path:
+                    raise ValueError("Не указан файл с данными")
+
+                print(f"Загрузка данных из CSV: {file_path}...")
+                data = self.data_loader.load_from_csv(file_path, self.symbol)
+
+            elif source_type == 'api':
+                # Загрузка через API (CCXT)
+                api_config = source_config.get('api', {})
+
+                exchange = api_config.get('exchange', 'binance')
+                api_symbol = api_config.get('symbol', 'BTC/USDT')
+                timeframe = strategy_timeframe
+                auto_save = api_config.get('auto_save', False)
+                market_type = api_config.get('market_type', 'spot')
+
+                print(f"Загрузка данных через API с биржи {exchange}...")
+
+                data = self.data_loader.load_from_api(
+                    symbol=api_symbol,
+                    timeframe=timeframe,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    exchange=exchange,
+                    market_type=market_type
+                )
+
+                # Автоматически сохраняем в CSV если включено
+                if auto_save:
+                    saved_file = self.data_loader.save_to_csv()
+                    print(f"Данные автоматически сохранены в {saved_file}")
+
+            else:
+                raise ValueError(f"Неподдерживаемый тип источника данных: {source_type}")
+
+            if data is None or data.empty:
+                raise ValueError("Не удалось загрузить данные")
+
+            # Фильтруем по дате если указано (для CSV данных)
+            if source_type == 'csv' and (self.start_date or self.end_date):
+                print(f"Фильтрация данных по периоду: {self.start_date} - {self.end_date}")
+                data = self.data_loader.filter_by_date(self.start_date, self.end_date)
+
+            # Проверяем качество данных
+            validation = self.data_loader.validate_data()
+            if validation['missing_values']:
+                print(f"Предупреждение: найдены пропущенные значения: {validation['missing_values']}")
+
+            if validation['price_anomalies'] > 0:
+                print(f"Предупреждение: найдено {validation['price_anomalies']} аномалий в ценах")
+
+            self.total_ticks = len(data)
+            print(f"Подготовлено {self.total_ticks} тиков для бэктеста")
+
+            return data
     
     def run_backtest(self, data: pd.DataFrame = None, verbose: bool = True) -> dict:
         """
-        Запускает бэктест
-        
+        Запускает бэктест (поддерживает dual timeframe режим)
+
         Args:
             data: данные для бэктеста (если не переданы, загружаются автоматически)
             verbose: выводить ли прогресс
-            
+
         Returns:
             Результаты бэктеста
         """
         if data is None:
             data = self.load_data()
-        
+
+        # Определяем режим работы
+        if self.use_dual_timeframe:
+            execution_data = self.execution_data
+            strategy_data = self.strategy_data
+            mode_str = f"DUAL TIMEFRAME ({self.config.get('execution_timeframe')} / {self.config.get('timeframe')})"
+        else:
+            execution_data = data
+            strategy_data = data
+            mode_str = f"SINGLE TIMEFRAME ({self.config.get('timeframe', '15m')})"
+
         print(f"\n{'='*50}")
-        print(f"НАЧАЛО БЭКТЕСТА")
+        print(f"НАЧАЛО БЭКТЕСТА - {mode_str}")
         print(f"{'='*50}")
         print(f"Символ: {self.symbol}")
-        print(f"Период: {data['timestamp'].min()} - {data['timestamp'].max()}")
-        print(f"Всего тиков: {len(data)}")
+        print(f"Период: {execution_data['timestamp'].min()} - {execution_data['timestamp'].max()}")
+        print(f"Execution тиков: {len(execution_data)}")
+        if self.use_dual_timeframe:
+            print(f"Strategy свечей: {len(strategy_data)}")
         print(f"Начальный баланс: ${self.strategy.initial_balance:,.2f}")
         print(f"Тип ордеров: {self.strategy.order_type.value.upper()}")
         print(f"DCA включен: {'Да' if self.strategy.dca_enabled else 'Нет'}")
@@ -149,104 +217,162 @@ class Backtester:
         print(f"Take Profit: {self.strategy.take_profit_percent*100:.1f}%")
         print(f"Stop Loss: {self.strategy.stop_loss_percent*100:.1f}%")
         print(f"{'='*50}\n")
-        
+
         self.start_time = time.time()
         self.processed_ticks = 0
-        
+
         # Передаем verbose флаг в стратегию
         self.strategy.verbose = verbose
-        
-        # Минимальный период для анализа
+
+        # Минимальный период для анализа (на strategy timeframe!)
         lookback_period = max(self.strategy.lookback_period, 20)
-        
+
         # Основной цикл бэктеста
-        for i in range(lookback_period, len(data)):
-            current_data = data.iloc[i]
-            historical_data = data.iloc[:i+1]  # Все данные до текущего момента включительно
-            
-            # Обрабатываем текущий тик
-            actions = self.strategy.process_tick(current_data, historical_data)
-            
-            # Логируем действия
-            for action in actions:
-                self.execution_log.append(action)
-                
-                if verbose and action['action'] in ['open_position', 'close_position', 'margin_call']:
-                    if action['action'] == 'open_position':
-                        print(f"[{current_data['timestamp']}] ВХОД: ${action['price']:.4f} | Кол-во: {action['quantity']:.6f}")
-                        if self.strategy.leverage > 1:
-                            position = self.strategy.get_open_position()
-                            if position:
-                                liquidation_price = self.strategy.calculate_liquidation_price(position)
-                                print(f"   📊 Плечо: {self.strategy.leverage}x | Цена ликвидации: ${liquidation_price:.4f}")
-                    elif action['action'] == 'close_position':
-                        trade = action['trade_info']
-                        pnl_sign = "+" if trade['pnl'] >= 0 else ""
-                        avg_price = trade.get('average_price', trade['entry_price'])
-                        
-                        # Детальная информация о причине закрытия
-                        reason_details = {
-                            'take_profit': '✅ Take Profit достигнут',
-                            'stop_loss': '🛑 Stop Loss сработал', 
-                            'max_drawdown_reached': '🛑 Максимальная просадка превышена',
-                            'trailing_take_profit': '✅ Trailing Take Profit сработал',
-                            'trailing_stop_loss': '🛑 Trailing Stop Loss сработал',
-                            'margin_call': '⚠️ Маржин колл'
-                        }
-                        
-                        reason_text = reason_details.get(trade['reason'], f"❓ {trade['reason']}")
-                        
-                        if trade['reason'] == 'max_drawdown_reached':
-                            print(f"🛑 [{current_data['timestamp']}] ЗАКРЫТИЕ ПО ПРОСАДКЕ")
-                            print(f"   💰 Цена выхода: ${action['trade_info']['exit_price']:.4f}")
-                            print(f"   📊 Средняя цена входа: ${avg_price:.4f}")
-                            print(f"   💸 PnL: {pnl_sign}${trade['pnl']:.2f} ({pnl_sign}{trade['pnl_percent']:.2f}%)")
-                            print(f"   📉 Причина: {reason_text}")
-                            print(f"   🔢 DCA ордеров: {trade.get('dca_orders', 'N/A')}")
-                        else:
-                            print(f"[{current_data['timestamp']}] ВЫХОД: ${action['trade_info']['exit_price']:.4f}")
-                            print(f"   📊 Средняя цена: ${avg_price:.4f}")
-                            print(f"   💸 PnL: {pnl_sign}${trade['pnl']:.2f} ({pnl_sign}{trade['pnl_percent']:.2f}%)")
-                            print(f"   📋 Причина: {reason_text}")
-                            print(f"   🔢 DCA ордеров: {trade.get('dca_orders', 'N/A')}")
-                    elif action['action'] == 'margin_call':
-                        trade = action['trade_info']
-                        pnl_sign = "+" if trade['pnl'] >= 0 else ""
-                        avg_price = trade.get('average_price', trade['entry_price'])
-                        print(f"⚠️  [{current_data['timestamp']}] ЛИКВИДАЦИЯ: ${action['trade_info']['exit_price']:.4f} | "
-                              f"Средняя цена: ${avg_price:.4f} | "
-                              f"PnL: {pnl_sign}${trade['pnl']:.2f} ({pnl_sign}{trade['pnl_percent']:.2f}%) | "
-                              f"Причина: {action['reason']}")
-                        print(f"   💥 Позиция ликвидирована из-за недостатка маржи!")
-            
-            self.processed_ticks += 1
-            
-            # Показываем прогресс каждые 1000 тиков
-            if verbose and self.processed_ticks % 1000 == 0:
-                progress = (self.processed_ticks / (self.total_ticks - lookback_period)) * 100
-                elapsed = time.time() - self.start_time
-                print(f"Прогресс: {progress:.1f}% | Время: {elapsed:.1f}с | Баланс: ${self.strategy.balance:.2f}")
-        
-        # Закрываем открытые позиции по последней цене
-        if self.strategy.has_open_position():
-            last_price = data.iloc[-1]['close']
-            last_timestamp = data.iloc[-1]['timestamp']
-            trade_info = self.strategy.close_position(last_price, last_timestamp, "end_of_data")
-            
-            if verbose:
-                avg_price = trade_info.get('average_price', trade_info['entry_price'])
-                print(f"[{last_timestamp}] Принудительное закрытие позиции по цене ${last_price:.4f}")
-                print(f"Средняя цена: ${avg_price:.4f}")
-                pnl_sign = "+" if trade_info['pnl'] >= 0 else ""
-                print(f"PnL: {pnl_sign}${trade_info['pnl']:.2f} ({pnl_sign}{trade_info['pnl_percent']:.2f}%)")
-        
-        # Собираем результаты
-        self.results = self._compile_results(data)
-        
+        if self.use_dual_timeframe:
+            # DUAL TIMEFRAME MODE - итерация по execution данным
+            for i in range(len(execution_data)):
+                current_exec_data = execution_data.iloc[i]
+                current_timestamp = current_exec_data['timestamp']
+
+                # Находим parent candle в strategy timeframe
+                parent_idx = self.data_loader.get_parent_candle_index(current_timestamp, strategy_data)
+
+                # Пропускаем пока не накопим достаточно strategy данных
+                if parent_idx < lookback_period:
+                    continue
+
+                # Текущая strategy свеча (последняя ЗАКРЫТАЯ)
+                current_strategy_data = strategy_data.iloc[parent_idx]
+
+                # Исторические данные обоих таймфреймов
+                historical_exec_data = execution_data.iloc[:i+1]
+                historical_strategy_data = strategy_data.iloc[:parent_idx+1]
+
+                # Обрабатываем тик (передаем оба таймфрейма)
+                actions = self.strategy.process_tick_dual(
+                    current_exec_data,
+                    historical_exec_data,
+                    current_strategy_data,
+                    historical_strategy_data
+                )
+
+                # Логируем действия
+                self._log_actions(actions, current_exec_data, verbose)
+
+                self.processed_ticks += 1
+
+                # Показываем прогресс каждые 1000 тиков
+                if verbose and self.processed_ticks % 1000 == 0:
+                    progress = (self.processed_ticks / len(execution_data)) * 100
+                    elapsed = time.time() - self.start_time
+                    print(f"Прогресс: {progress:.1f}% | Время: {elapsed:.1f}с | Баланс: ${self.strategy.balance:.2f}")
+
+            # Закрываем открытые позиции по последней execution цене
+            if self.strategy.has_open_position():
+                last_price = execution_data.iloc[-1]['close']
+                last_timestamp = execution_data.iloc[-1]['timestamp']
+                trade_info = self.strategy.close_position(last_price, last_timestamp, "end_of_data")
+
+                if verbose:
+                    avg_price = trade_info.get('average_price', trade_info['entry_price'])
+                    print(f"[{last_timestamp}] Принудительное закрытие позиции по цене ${last_price:.4f}")
+                    print(f"Средняя цена: ${avg_price:.4f}")
+                    pnl_sign = "+" if trade_info['pnl'] >= 0 else ""
+                    print(f"PnL: {pnl_sign}${trade_info['pnl']:.2f} ({pnl_sign}{trade_info['pnl_percent']:.2f}%)")
+
+        else:
+            # SINGLE TIMEFRAME MODE - как раньше
+            for i in range(lookback_period, len(data)):
+                current_data = data.iloc[i]
+                historical_data = data.iloc[:i+1]
+
+                # Обрабатываем текущий тик
+                actions = self.strategy.process_tick(current_data, historical_data)
+
+                # Логируем действия
+                self._log_actions(actions, current_data, verbose)
+
+                self.processed_ticks += 1
+
+                # Показываем прогресс каждые 1000 тиков
+                if verbose and self.processed_ticks % 1000 == 0:
+                    progress = (self.processed_ticks / (self.total_ticks - lookback_period)) * 100
+                    elapsed = time.time() - self.start_time
+                    print(f"Прогресс: {progress:.1f}% | Время: {elapsed:.1f}с | Баланс: ${self.strategy.balance:.2f}")
+
+            # Закрываем открытые позиции по последней цене
+            if self.strategy.has_open_position():
+                last_price = data.iloc[-1]['close']
+                last_timestamp = data.iloc[-1]['timestamp']
+                trade_info = self.strategy.close_position(last_price, last_timestamp, "end_of_data")
+
+                if verbose:
+                    avg_price = trade_info.get('average_price', trade_info['entry_price'])
+                    print(f"[{last_timestamp}] Принудительное закрытие позиции по цене ${last_price:.4f}")
+                    print(f"Средняя цена: ${avg_price:.4f}")
+                    pnl_sign = "+" if trade_info['pnl'] >= 0 else ""
+                    print(f"PnL: {pnl_sign}${trade_info['pnl']:.2f} ({pnl_sign}{trade_info['pnl_percent']:.2f}%)")
+
+        # Собираем результаты (используем execution_data для compile_results)
+        self.results = self._compile_results(execution_data if self.use_dual_timeframe else data)
+
         if verbose:
             self._print_results()
-        
+
         return self.results
+
+    def _log_actions(self, actions: list, current_data: pd.Series, verbose: bool):
+        """Вспомогательный метод для логирования действий"""
+        for action in actions:
+            self.execution_log.append(action)
+
+            if verbose and action['action'] in ['open_position', 'close_position', 'margin_call']:
+                if action['action'] == 'open_position':
+                    print(f"[{current_data['timestamp']}] ВХОД: ${action['price']:.4f} | Кол-во: {action['quantity']:.6f}")
+                    if self.strategy.leverage > 1:
+                        position = self.strategy.get_open_position()
+                        if position:
+                            liquidation_price = self.strategy.calculate_liquidation_price(position)
+                            print(f"   📊 Плечо: {self.strategy.leverage}x | Цена ликвидации: ${liquidation_price:.4f}")
+                elif action['action'] == 'close_position':
+                    trade = action['trade_info']
+                    pnl_sign = "+" if trade['pnl'] >= 0 else ""
+                    avg_price = trade.get('average_price', trade['entry_price'])
+
+                    # Детальная информация о причине закрытия
+                    reason_details = {
+                        'take_profit': '✅ Take Profit достигнут',
+                        'stop_loss': '🛑 Stop Loss сработал',
+                        'max_drawdown_reached': '🛑 Максимальная просадка превышена',
+                        'trailing_take_profit': '✅ Trailing Take Profit сработал',
+                        'trailing_stop_loss': '🛑 Trailing Stop Loss сработал',
+                        'margin_call': '⚠️ Маржин колл'
+                    }
+
+                    reason_text = reason_details.get(trade['reason'], f"❓ {trade['reason']}")
+
+                    if trade['reason'] == 'max_drawdown_reached':
+                        print(f"🛑 [{current_data['timestamp']}] ЗАКРЫТИЕ ПО ПРОСАДКЕ")
+                        print(f"   💰 Цена выхода: ${action['trade_info']['exit_price']:.4f}")
+                        print(f"   📊 Средняя цена входа: ${avg_price:.4f}")
+                        print(f"   💸 PnL: {pnl_sign}${trade['pnl']:.2f} ({pnl_sign}{trade['pnl_percent']:.2f}%)")
+                        print(f"   📉 Причина: {reason_text}")
+                        print(f"   🔢 DCA ордеров: {trade.get('dca_orders', 'N/A')}")
+                    else:
+                        print(f"[{current_data['timestamp']}] ВЫХОД: ${action['trade_info']['exit_price']:.4f}")
+                        print(f"   📊 Средняя цена: ${avg_price:.4f}")
+                        print(f"   💸 PnL: {pnl_sign}${trade['pnl']:.2f} ({pnl_sign}{trade['pnl_percent']:.2f}%)")
+                        print(f"   📋 Причина: {reason_text}")
+                        print(f"   🔢 DCA ордеров: {trade.get('dca_orders', 'N/A')}")
+                elif action['action'] == 'margin_call':
+                    trade = action['trade_info']
+                    pnl_sign = "+" if trade['pnl'] >= 0 else ""
+                    avg_price = trade.get('average_price', trade['entry_price'])
+                    print(f"⚠️  [{current_data['timestamp']}] ЛИКВИДАЦИЯ: ${action['trade_info']['exit_price']:.4f} | "
+                          f"Средняя цена: ${avg_price:.4f} | "
+                          f"PnL: {pnl_sign}${trade['pnl']:.2f} ({pnl_sign}{trade['pnl_percent']:.2f}%) | "
+                          f"Причина: {action['reason']}")
+                    print(f"   💥 Позиция ликвидирована из-за недостатка маржи!")
     
     def _compile_results(self, data: pd.DataFrame) -> dict:
         """Компилирует результаты бэктеста"""
@@ -486,11 +612,77 @@ class Backtester:
         """Возвращает сводку по сделкам в виде DataFrame"""
         if not self.strategy.trade_history:
             return pd.DataFrame()
-        
+
         df = pd.DataFrame(self.strategy.trade_history)
-        
+
         # Добавляем дополнительные колонки
         df['duration_hours'] = (df['exit_time'] - df['entry_time']).dt.total_seconds() / 3600
         df['profit_loss'] = df['pnl'].apply(lambda x: 'Profit' if x > 0 else 'Loss')
-        
-        return df 
+
+        return df
+
+    def visualize_results(self,
+                         graph_type: str = 'all',
+                         show_dca: bool = True,
+                         show_levels: bool = True,
+                         save_html: bool = False,
+                         filename: str = None):
+        """
+        Визуализирует результаты бэктеста
+
+        Args:
+            graph_type: тип графика ('all', 'price', 'balance', 'pnl', 'drawdown', 'distribution')
+            show_dca: показывать ли DCA ордера на графике цены
+            show_levels: показывать ли уровни TP/SL
+            save_html: сохранить ли график в HTML файл
+            filename: имя файла для сохранения (если не указано, генерируется автоматически)
+
+        Returns:
+            plotly Figure
+        """
+        if not self.results:
+            raise ValueError("Нет результатов для визуализации. Сначала запустите run_backtest()")
+
+        # Определяем какие данные использовать (execution или strategy)
+        if self.use_dual_timeframe and self.execution_data is not None:
+            data = self.execution_data
+        elif self.data_loader.data is not None:
+            data = self.data_loader.data
+        else:
+            data = None
+
+        # Создаем визуализатор
+        visualizer = BacktestVisualizer(self.results, data)
+
+        # Выбираем тип графика
+        if graph_type == 'all':
+            fig = visualizer.plot_all()
+        elif graph_type == 'price':
+            fig = visualizer.plot_price_and_trades(show_dca=show_dca, show_levels=show_levels)
+        elif graph_type == 'balance':
+            fig = visualizer.plot_balance()
+        elif graph_type == 'pnl':
+            fig = visualizer.plot_pnl()
+        elif graph_type == 'drawdown':
+            fig = visualizer.plot_drawdown()
+        elif graph_type == 'distribution':
+            fig = visualizer.plot_trade_distribution()
+        else:
+            raise ValueError(f"Неизвестный тип графика: {graph_type}. "
+                           f"Доступные: 'all', 'price', 'balance', 'pnl', 'drawdown', 'distribution'")
+
+        # Сохраняем в HTML если требуется
+        if save_html:
+            saved_path = visualizer.save_html(filename, fig)
+            print(f"\n📊 График сохранен в {saved_path}")
+
+        # Показываем статистику
+        print("\n" + "="*60)
+        print("📈 СВОДНАЯ СТАТИСТИКА")
+        print("="*60)
+        stats = visualizer.get_summary_stats()
+        for key, value in stats.items():
+            print(f"{key:.<30} {value}")
+        print("="*60 + "\n")
+
+        return fig 

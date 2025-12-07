@@ -19,6 +19,7 @@ import pandas as pd
 from backtester import Backtester
 from reporter import BacktestReporter
 from data_loader import DataLoader
+from visualizer import BacktestVisualizer
 
 app = Flask(__name__)
 app.secret_key = 'backtester_secret_key_change_in_production'
@@ -994,6 +995,90 @@ def clear_all_backtests():
     except Exception as e:
         print(f"[DELETE ERROR] Ошибка очистки бэктестов: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/visualization/<task_id>')
+def get_visualization(task_id):
+    """API для получения plotly визуализации"""
+    try:
+        # Получаем результаты
+        if task_id in backtest_results:
+            results = backtest_results[task_id]
+        else:
+            results = load_backtest_from_db(task_id)
+            if not results:
+                return jsonify({'error': 'Результаты не найдены'}), 404
+            backtest_results[task_id] = results
+
+        # Получаем OHLCV данные если есть
+        data = None
+        if 'data_summary' in results and results['data_summary']:
+            # Пытаемся восстановить данные из конфига
+            config = results.get('config', {})
+            data_source = config.get('data_source', {})
+
+            if data_source.get('type') == 'csv':
+                file_path = data_source.get('file')
+                if file_path and os.path.exists(file_path):
+                    try:
+                        loader = DataLoader()
+                        data = loader.load_from_csv(file_path, config.get('symbol'))
+                    except Exception as e:
+                        print(f"Ошибка загрузки данных для визуализации: {e}")
+
+        # Создаем визуализатор
+        viz = BacktestVisualizer(results, data)
+
+        # Получаем тип графика из параметров
+        chart_type = request.args.get('type', 'all')
+
+        # Создаем график
+        if chart_type == 'all':
+            fig = viz.plot_all()
+        elif chart_type == 'price':
+            fig = viz.plot_price_and_trades()
+        elif chart_type == 'balance':
+            fig = viz.plot_balance()
+        elif chart_type == 'pnl':
+            fig = viz.plot_pnl()
+        elif chart_type == 'drawdown':
+            fig = viz.plot_drawdown()
+        elif chart_type == 'distribution':
+            fig = viz.plot_trade_distribution()
+        else:
+            return jsonify({'error': f'Неизвестный тип графика: {chart_type}'}), 400
+
+        # Вместо HTML возвращаем JSON с данными для Plotly
+        graph_json = fig.to_json()
+
+        return jsonify({
+            'success': True,
+            'graph_json': graph_json,
+            'task_id': task_id,
+            'chart_type': chart_type
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"Ошибка визуализации: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/visualization/<task_id>')
+def visualization_page(task_id):
+    """Страница с интерактивной визуализацией"""
+    # Проверяем существование результатов
+    if task_id not in backtest_results:
+        results = load_backtest_from_db(task_id)
+        if not results:
+            flash('Результаты не найдены', 'error')
+            return redirect(url_for('results_page'))
+        backtest_results[task_id] = results
+
+    return render_template('visualization.html', task_id=task_id)
+
+@app.route('/test-plotly')
+def test_plotly():
+    """Тестовая страница Plotly"""
+    return render_template('test_plotly.html')
 
 @app.route('/health')
 def health_check():
