@@ -156,6 +156,19 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy config files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: "nginx/backtester.conf,docker-compose.prod.yml"
+          target: "/opt/backtester/"
+          strip_components: 0
+
       - name: Deploy to production
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -187,7 +200,7 @@ jobs:
             # Устанавливаем Nginx конфигурацию (только если ещё не установлена)
             if [ ! -f /etc/nginx/sites-enabled/backtester.conf ]; then
               echo "Setting up Nginx configuration..."
-              sudo cp nginx/backtester.conf /etc/nginx/sites-available/backtester.conf
+              sudo cp /opt/backtester/nginx/backtester.conf /etc/nginx/sites-available/backtester.conf
               sudo ln -s /etc/nginx/sites-available/backtester.conf /etc/nginx/sites-enabled/
 
               # Проверяем конфигурацию Nginx
