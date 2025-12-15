@@ -444,7 +444,7 @@ class IndicatorStrategy:
             'low_volatility': low_volatility,
             'indicators': {
                 'bb_upper': bb_upper_current,
-                'bb_middle': bb_middle.iloc[current_idx],
+                'bb_middle': bb_middle.iloc[-1],
                 'bb_lower': bb_lower_current,
                 'atr': atr_current,
                 'avg_atr': avg_atr,
