@@ -165,8 +165,41 @@ jobs:
           debug: true
           script: |
             cd /opt/backtester
+
+            # Создаём .env файл из GitHub Secrets
+            echo "Creating .env file..."
+            cat > .env << EOF
+            GITHUB_REPOSITORY=${{ github.repository }}
+            DOMAIN=${{ secrets.DOMAIN }}
+            LETSENCRYPT_EMAIL=${{ secrets.LETSENCRYPT_EMAIL }}
+            WEB_PORT=${{ secrets.WEB_PORT }}
+            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            EOF
+
+            # Логин в GitHub Container Registry
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Создаём директорию для SSL сертификатов
+            mkdir -p traefik/letsencrypt
+            touch traefik/letsencrypt/acme.json
+            chmod 600 traefik/letsencrypt/acme.json
+
+            # Запускаем Traefik (если ещё не запущен)
+            echo "Starting Traefik..."
+            docker compose -f docker-compose.traefik.yml up -d
+
+            # Обновляем и запускаем основное приложение
+            echo "Deploying backtester..."
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d
+
+            # Очищаем неиспользуемые образы
             docker system prune -f
+
+            # Проверяем статус сервисов
+            echo "Checking services status..."
+            docker compose -f docker-compose.traefik.yml ps
+            docker compose -f docker-compose.prod.yml ps
+
             echo "✅ Deployment completed!"
+            echo "🌐 Your application is available at: https://${{ secrets.DOMAIN }}"

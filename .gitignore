@@ -143,6 +143,10 @@ reports/*
 .env
 config.json
 
+# Traefik
+traefik/letsencrypt/
+traefik/acme.json
+
 # IDE
 .idea/
 .vscode/
