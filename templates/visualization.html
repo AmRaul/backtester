@@ -47,6 +47,22 @@
             <button type="button" class="btn btn-outline-secondary ms-3" onclick="window.location.href='/results/{{ task_id }}'">
                 <i class="fas fa-arrow-left me-1"></i>Назад к результатам
             </button>
+
+            <!-- Чекбоксы для индикаторов -->
+            <div class="ms-3 d-inline-block">
+                <div class="form-check form-switch d-inline-block me-3">
+                    <input class="form-check-input" type="checkbox" id="showEmaCheck">
+                    <label class="form-check-label" for="showEmaCheck">
+                        <i class="fas fa-chart-line me-1"></i>Показать EMA (50, 200)
+                    </label>
+                </div>
+                <div class="form-check form-switch d-inline-block">
+                    <input class="form-check-input" type="checkbox" id="showRsiCheck">
+                    <label class="form-check-label" for="showRsiCheck">
+                        <i class="fas fa-tachometer-alt me-1"></i>Показать RSI
+                    </label>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -92,7 +108,7 @@
 
     #plotly-chart-container {
         min-height: 800px;
-        height: 800px;
+        height: auto;  /* Автоматическая высота для subplot */
         background: #ffffff;
     }
 
@@ -172,6 +188,15 @@
                 loadVisualization(chartType);
             });
         });
+
+        // Обработчики чекбоксов индикаторов
+        document.getElementById('showEmaCheck').addEventListener('change', function() {
+            loadVisualization(currentChartType);
+        });
+
+        document.getElementById('showRsiCheck').addEventListener('change', function() {
+            loadVisualization(currentChartType);
+        });
     });
 
     function loadVisualization(chartType) {
@@ -184,7 +209,11 @@
         document.getElementById('loading-indicator').style.display = 'block';
         document.getElementById('plotly-chart-container').innerHTML = '';
 
-        const url = `/api/visualization/${taskId}?type=${chartType}`;
+        // Проверяем состояние чекбоксов индикаторов
+        const showEma = document.getElementById('showEmaCheck').checked;
+        const showRsi = document.getElementById('showRsiCheck').checked;
+
+        const url = `/api/visualization/${taskId}?type=${chartType}&show_ema=${showEma}&show_rsi=${showRsi}`;
         console.log('[Visualization] URL:', url);
         updateDebug('🌐 Запрос к API...');
 
@@ -222,12 +251,14 @@
 
                         updateDebug('🎨 Отрисовка графика...');
 
-                        // Отрисовываем график используя Plotly
+                        // Отрисовываем график используя Plotly (с улучшенной навигацией как в TradingView)
                         Plotly.newPlot('plotly-chart', graphData.data, graphData.layout, {
                             responsive: true,
                             displayModeBar: true,
                             modeBarButtonsToRemove: ['lasso2d', 'select2d'],
-                            displaylogo: false
+                            displaylogo: false,
+                            scrollZoom: true,  // Масштабирование колесиком мыши
+                            doubleClick: 'reset'  // Двойной клик для сброса зума
                         }).then(() => {
                             console.log('[Visualization] ✅ График отрисован успешно!');
                             updateDebug('✅ График отрисован успешно! Можно скрыть это сообщение.');

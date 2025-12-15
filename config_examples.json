@@ -618,6 +618,75 @@
     }
   },
 
+  "trend_momentum_aster_example": {
+    "start_balance": 1000,
+    "leverage": 5,
+    "order_type": "long",
+    "indicators": {
+      "enabled": true,
+      "strategy_type": "trend_momentum",
+      "trend_momentum": {
+        "ema_short": 50,
+        "ema_long": 200,
+        "rsi_period": 14,
+        "rsi_oversold": 30,
+        "rsi_overbought": 70
+      }
+    },
+    "entry_conditions": {
+      "type": "indicator_based"
+    },
+    "first_order": {
+      "amount_percent": null,
+      "amount_fixed": 100,
+      "risk_percent": null
+    },
+    "dca": {
+      "enabled": true,
+      "max_orders": 3,
+      "martingale": {
+        "enabled": true,
+        "multiplier": 2.0,
+        "progression": "exponential"
+      },
+      "step_price": {
+        "type": "fixed_percent",
+        "value": 2.0,
+        "dynamic_multiplier": 1.0,
+        "atr_multiplier": null
+      }
+    },
+    "take_profit": {
+      "enabled": true,
+      "percent": 3,
+      "trailing": {
+        "enabled": false,
+        "activation_percent": 2,
+        "trail_percent": 1
+      }
+    },
+    "stop_loss": {
+      "enabled": true,
+      "percent": 10,
+      "trailing": {
+        "enabled": false,
+        "activation_percent": 5,
+        "trail_percent": 2
+      }
+    },
+    "risk_management": {
+      "max_drawdown_percent": 50,
+      "max_open_positions": 1,
+      "daily_loss_limit": null
+    },
+    "symbol": "ASTERUSDT",
+    "timeframe": "15m",
+    "data_source": {
+      "type": "csv",
+      "file": "data/ASTERUSDT:USDT_15m_20251214_045755.csv"
+    }
+  },
+
   "momentum_trend_strategy": {
     "start_balance": 2000,
     "leverage": 10,

@@ -20,6 +20,14 @@ services:
       - ./backtester.py:/app/backtester.py
       - ./data_loader.py:/app/data_loader.py
       - ./visualizer.py:/app/visualizer.py
+      - ./indicators.py:/app/indicators.py
+      - ./reporter.py:/app/reporter.py
+      - ./test_indicators.py:/app/test_indicators.py
+      - ./test_backtest_with_indicators.py:/app/test_backtest_with_indicators.py
+      - ./test_config_indicators.json:/app/test_config_indicators.json
+      - ./analyze_indicators.py:/app/analyze_indicators.py
+      - ./debug_backtest.py:/app/debug_backtest.py
+      - ./test_visualization_indicators.py:/app/test_visualization_indicators.py
       - ./config.json:/app/config.json
       - ./config_examples.json:/app/config_examples.json
       - ./config_api_examples.json:/app/config_api_examples.json

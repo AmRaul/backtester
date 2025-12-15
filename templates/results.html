@@ -20,6 +20,9 @@
                             <tr>
                                 <th>ID задачи</th>
                                 <th>Символ</th>
+                                <th>Направление</th>
+                                <th>Доходность</th>
+                                <th>Период</th>
                                 <th>Статус</th>
                                 <th>Время запуска</th>
                                 <th>Действия</th>
@@ -33,6 +36,43 @@
                                 </td>
                                 <td>
                                     <span class="badge bg-primary">{{ task.config_symbol }}</span>
+                                </td>
+                                <td>
+                                    {% if task.order_type == 'long' %}
+                                        <span class="badge bg-success">
+                                            <i class="fas fa-arrow-up me-1"></i>Long
+                                        </span>
+                                    {% elif task.order_type == 'short' %}
+                                        <span class="badge bg-danger">
+                                            <i class="fas fa-arrow-down me-1"></i>Short
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if task.total_return is not none %}
+                                        {% if task.total_return >= 0 %}
+                                            <span class="text-success fw-bold">+{{ "%.2f"|format(task.total_return) }}%</span>
+                                        {% else %}
+                                            <span class="text-danger fw-bold">{{ "%.2f"|format(task.total_return) }}%</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <small class="text-muted">
+                                        {% if task.start_date and task.end_date %}
+                                            {{ task.start_date[:10] }} - {{ task.end_date[:10] }}
+                                        {% elif task.start_date %}
+                                            с {{ task.start_date[:10] }}
+                                        {% elif task.end_date %}
+                                            до {{ task.end_date[:10] }}
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </small>
                                 </td>
                                 <td>
                                     {% if task.status == 'completed' %}

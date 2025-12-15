@@ -625,6 +625,7 @@ class Backtester:
                          graph_type: str = 'all',
                          show_dca: bool = True,
                          show_levels: bool = True,
+                         show_indicators: bool = False,
                          save_html: bool = False,
                          filename: str = None):
         """
@@ -634,6 +635,7 @@ class Backtester:
             graph_type: тип графика ('all', 'price', 'balance', 'pnl', 'drawdown', 'distribution')
             show_dca: показывать ли DCA ордера на графике цены
             show_levels: показывать ли уровни TP/SL
+            show_indicators: показывать ли индикаторы (EMA, RSI) на графике
             save_html: сохранить ли график в HTML файл
             filename: имя файла для сохранения (если не указано, генерируется автоматически)
 
@@ -658,7 +660,7 @@ class Backtester:
         if graph_type == 'all':
             fig = visualizer.plot_all()
         elif graph_type == 'price':
-            fig = visualizer.plot_price_and_trades(show_dca=show_dca, show_levels=show_levels)
+            fig = visualizer.plot_price_and_trades(show_dca=show_dca, show_levels=show_levels, show_indicators=show_indicators)
         elif graph_type == 'balance':
             fig = visualizer.plot_balance()
         elif graph_type == 'pnl':

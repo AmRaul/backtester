@@ -67,10 +67,71 @@ def init_database():
                 win_rate REAL DEFAULT 0.0,
                 total_return REAL DEFAULT 0.0,
                 max_drawdown REAL DEFAULT 0.0,
-                sharpe_ratio REAL DEFAULT 0.0
+                sharpe_ratio REAL DEFAULT 0.0,
+                order_type TEXT,
+                start_date TEXT,
+                end_date TEXT
             )
         ''')
-        
+
+        # Миграция: добавляем новые колонки если их нет
+        try:
+            cursor.execute("PRAGMA table_info(backtest_history)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'order_type' not in columns:
+                cursor.execute('ALTER TABLE backtest_history ADD COLUMN order_type TEXT DEFAULT "long"')
+                print("[DB] Добавлена колонка order_type")
+
+            if 'start_date' not in columns:
+                cursor.execute('ALTER TABLE backtest_history ADD COLUMN start_date TEXT')
+                print("[DB] Добавлена колонка start_date")
+
+            if 'end_date' not in columns:
+                cursor.execute('ALTER TABLE backtest_history ADD COLUMN end_date TEXT')
+                print("[DB] Добавлена колонка end_date")
+
+            # Заполняем данные из config_json для существующих записей
+            cursor.execute('''
+                SELECT id, task_id, config_json, order_type, start_date, end_date
+                FROM backtest_history
+            ''')
+            rows = cursor.fetchall()
+
+            updated_count = 0
+            for row in rows:
+                record_id = row[0]
+                task_id = row[1]
+                config_json_str = row[2]
+                current_order_type = row[3]
+                current_start_date = row[4]
+                current_end_date = row[5]
+
+                # Если данные уже заполнены, пропускаем
+                if current_order_type and current_start_date and current_end_date:
+                    continue
+
+                try:
+                    config = json.loads(config_json_str)
+                    order_type = config.get('order_type', 'long')
+                    start_date = config.get('start_date')
+                    end_date = config.get('end_date')
+
+                    cursor.execute('''
+                        UPDATE backtest_history
+                        SET order_type = ?, start_date = ?, end_date = ?
+                        WHERE id = ?
+                    ''', (order_type, start_date, end_date, record_id))
+                    updated_count += 1
+                except Exception as e:
+                    print(f"[DB] Ошибка обновления записи {task_id}: {e}")
+
+            if updated_count > 0:
+                print(f"[DB] Обновлено {updated_count} записей с данными из config")
+
+        except Exception as e:
+            print(f"[DB] Ошибка миграции: {e}")
+
         conn.commit()
 
 @contextmanager
@@ -151,12 +212,15 @@ def save_backtest_to_db(task_id, config, results):
         total_return = results.get('basic_stats', {}).get('total_return', 0)
         total_trades = results.get('basic_stats', {}).get('total_trades', 0)
         win_rate = results.get('basic_stats', {}).get('win_rate', 0)
+        order_type = config.get('order_type', 'long')
+        start_date = config.get('start_date')
+        end_date = config.get('end_date')
 
         cursor.execute('''
             INSERT INTO backtest_history
             (task_id, config_name, config_json, results_json, status,
-             symbol, timeframe, total_return, total_trades, win_rate)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             symbol, timeframe, total_return, total_trades, win_rate, order_type, start_date, end_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             task_id,
             f"{symbol}_{timeframe}",
@@ -167,7 +231,10 @@ def save_backtest_to_db(task_id, config, results):
             timeframe,
             total_return,
             total_trades,
-            win_rate
+            win_rate,
+            order_type,
+            start_date,
+            end_date
         ))
 
         conn.commit()
@@ -521,7 +588,11 @@ def results_page():
             'task_id': task_id,
             'status': task.status,
             'start_time': task.start_time,
-            'config_symbol': task.config.get('symbol', 'Unknown')
+            'config_symbol': task.config.get('symbol', 'Unknown'),
+            'order_type': task.config.get('order_type', 'long'),
+            'total_return': None,
+            'start_date': task.config.get('start_date'),
+            'end_date': task.config.get('end_date')
         })
 
     # Добавляем завершенные задачи из БД
@@ -529,7 +600,8 @@ def results_page():
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT task_id, symbol, timeframe, created_at, total_return, total_trades
+                SELECT task_id, symbol, timeframe, created_at, total_return, total_trades,
+                       order_type, start_date, end_date
                 FROM backtest_history
                 ORDER BY created_at DESC
                 LIMIT 50
@@ -554,7 +626,10 @@ def results_page():
                         'start_time': start_time,
                         'config_symbol': row['symbol'],
                         'total_return': row['total_return'],
-                        'total_trades': row['total_trades']
+                        'total_trades': row['total_trades'],
+                        'order_type': row['order_type'],
+                        'start_date': row['start_date'],
+                        'end_date': row['end_date']
                     })
     except Exception as e:
         print(f"[RESULTS PAGE] Ошибка загрузки из БД: {e}")
@@ -594,6 +669,49 @@ def view_results(task_id):
 def strategies_page():
     """Страница управления стратегиями"""
     return render_template('strategies.html')
+
+@app.route('/api/load-example-configs', methods=['POST'])
+def load_example_configs():
+    """Загружает примеры конфигураций из config_examples.json в базу данных"""
+    try:
+        with open('config_examples.json', 'r', encoding='utf-8') as f:
+            examples = json.load(f)
+
+        loaded_count = 0
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+
+            for name, config in examples.items():
+                try:
+                    # Проверяем существует ли уже
+                    cursor.execute('SELECT id FROM strategy_configs WHERE name = ?', (name,))
+                    if cursor.fetchone():
+                        continue  # Пропускаем если уже есть
+
+                    # Добавляем конфигурацию
+                    cursor.execute('''
+                        INSERT INTO strategy_configs (name, description, config_json, is_public, author)
+                        VALUES (?, ?, ?, 1, 'system')
+                    ''', (
+                        name,
+                        f"Пример стратегии: {config.get('order_type', 'unknown')} на {config.get('symbol', 'unknown')}",
+                        json.dumps(config, ensure_ascii=False)
+                    ))
+                    loaded_count += 1
+                except Exception as e:
+                    print(f"Ошибка загрузки примера {name}: {e}")
+                    continue
+
+            conn.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'Загружено {loaded_count} примеров конфигураций',
+            'loaded_count': loaded_count
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/generate-report/<task_id>')
 def generate_report(task_id):
@@ -1030,12 +1148,16 @@ def get_visualization(task_id):
 
         # Получаем тип графика из параметров
         chart_type = request.args.get('type', 'all')
+        show_ema = request.args.get('show_ema', 'false').lower() == 'true'
+        show_rsi = request.args.get('show_rsi', 'false').lower() == 'true'
+
+        print(f"[DEBUG VISUALIZATION] task_id={task_id}, chart_type={chart_type}, show_ema={show_ema}, show_rsi={show_rsi}")
 
         # Создаем график
         if chart_type == 'all':
             fig = viz.plot_all()
         elif chart_type == 'price':
-            fig = viz.plot_price_and_trades()
+            fig = viz.plot_price_and_trades(show_ema=show_ema, show_rsi=show_rsi)
         elif chart_type == 'balance':
             fig = viz.plot_balance()
         elif chart_type == 'pnl':
@@ -1047,8 +1169,16 @@ def get_visualization(task_id):
         else:
             return jsonify({'error': f'Неизвестный тип графика: {chart_type}'}), 400
 
+        # Логируем информацию о графике
+        print(f"[DEBUG VISUALIZATION] Создан график с {len(fig.data)} traces")
+        for i, trace in enumerate(fig.data):
+            trace_name = getattr(trace, 'name', 'unnamed')
+            print(f"  Trace {i}: {trace_name} (type: {type(trace).__name__})")
+
         # Вместо HTML возвращаем JSON с данными для Plotly
         graph_json = fig.to_json()
+
+        print(f"[DEBUG VISUALIZATION] JSON serialization complete")
 
         return jsonify({
             'success': True,

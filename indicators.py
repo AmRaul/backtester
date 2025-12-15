@@ -268,22 +268,19 @@ class IndicatorStrategy:
         rsi_oversold = config.get('rsi_oversold', 30)
         rsi_overbought = config.get('rsi_overbought', 70)
         
-        # Вычисляем индикаторы
+        # Вычисляем индикаторы (БЕЗ кэширования для корректной работы в бэктесте)
         ema_50 = self.indicators.calculate_ema(
-            data['close'], ema_short, f"ema_{ema_short}"
+            data['close'], ema_short, cache_key=None
         )
         ema_200 = self.indicators.calculate_ema(
-            data['close'], ema_long, f"ema_{ema_long}"
+            data['close'], ema_long, cache_key=None
         )
         rsi = self.indicators.calculate_rsi(
-            data['close'], rsi_period, f"rsi_{rsi_period}"
+            data['close'], rsi_period, cache_key=None
         )
         
-        # Получаем текущие значения
-        current_idx = len(data) - 1
-        
-        # Проверяем, что у нас достаточно данных
-        if current_idx < 0 or pd.isna(ema_50.iloc[current_idx]) or pd.isna(ema_200.iloc[current_idx]) or pd.isna(rsi.iloc[current_idx]):
+        # Получаем текущие значения (используем -1 для последнего элемента)
+        if len(data) == 0 or len(ema_50) == 0 or len(ema_200) == 0 or len(rsi) == 0:
             return {
                 'long_signal': False,
                 'short_signal': False,
@@ -300,10 +297,29 @@ class IndicatorStrategy:
                     'rsi_series': rsi
                 }
             }
-        
-        ema_50_current = ema_50.iloc[current_idx]
-        ema_200_current = ema_200.iloc[current_idx]
-        rsi_current = rsi.iloc[current_idx]
+
+        # Проверяем, что у нас достаточно данных
+        if pd.isna(ema_50.iloc[-1]) or pd.isna(ema_200.iloc[-1]) or pd.isna(rsi.iloc[-1]):
+            return {
+                'long_signal': False,
+                'short_signal': False,
+                'trend_up': False,
+                'trend_down': False,
+                'rsi_oversold': False,
+                'rsi_overbought': False,
+                'indicators': {
+                    'ema_50': 0,
+                    'ema_200': 0,
+                    'rsi': 0,
+                    'ema_50_series': ema_50,
+                    'ema_200_series': ema_200,
+                    'rsi_series': rsi
+                }
+            }
+
+        ema_50_current = ema_50.iloc[-1]
+        ema_200_current = ema_200.iloc[-1]
+        rsi_current = rsi.iloc[-1]
         
         # Определяем тренд
         trend_up = ema_50_current > ema_200_current
@@ -313,10 +329,10 @@ class IndicatorStrategy:
         long_signal = trend_up and rsi_current < 40  # Мягче чем 30
         short_signal = trend_down and rsi_current > 60  # Мягче чем 70
         
-        # Отладочная информация
-        print(f"DEBUG: EMA50={ema_50_current:.2f}, EMA200={ema_200_current:.2f}, RSI={rsi_current:.2f}")
-        print(f"DEBUG: trend_up={trend_up}, trend_down={trend_down}")
-        print(f"DEBUG: long_signal={long_signal}, short_signal={short_signal}")
+        # Отладочная информация (закомментирована чтобы не спамить)
+        # print(f"DEBUG: EMA50={ema_50_current:.2f}, EMA200={ema_200_current:.2f}, RSI={rsi_current:.2f}")
+        # print(f"DEBUG: trend_up={trend_up}, trend_down={trend_down}")
+        # print(f"DEBUG: long_signal={long_signal}, short_signal={short_signal}")
         
         return {
             'long_signal': long_signal,
@@ -351,22 +367,16 @@ class IndicatorStrategy:
         bb_std = config.get('bb_std', 2)
         atr_period = config.get('atr_period', 14)
         
-        # Вычисляем индикаторы
+        # Вычисляем индикаторы (БЕЗ кэширования для корректной работы в бэктесте)
         bb_upper, bb_middle, bb_lower = self.indicators.calculate_bollinger_bands(
-            data['close'], bb_period, bb_std, f"bb_{bb_period}_{bb_std}"
+            data['close'], bb_period, bb_std, cache_key=None
         )
         atr = self.indicators.calculate_atr(
-            data['high'], data['low'], data['close'], atr_period, f"atr_{atr_period}"
+            data['high'], data['low'], data['close'], atr_period, cache_key=None
         )
         
-        # Получаем текущие значения
-        current_idx = len(data) - 1
-        
-        # Проверяем, что у нас достаточно данных
-        if (current_idx < 0 or 
-            pd.isna(bb_upper.iloc[current_idx]) or 
-            pd.isna(bb_lower.iloc[current_idx]) or 
-            pd.isna(atr.iloc[current_idx])):
+        # Получаем текущие значения (используем -1 для последнего элемента)
+        if (len(data) == 0 or len(bb_upper) == 0 or len(bb_lower) == 0 or len(atr) == 0):
             return {
                 'long_signal': False,
                 'short_signal': False,
@@ -385,11 +395,34 @@ class IndicatorStrategy:
                     'atr_series': atr
                 }
             }
-        
-        current_price = data['close'].iloc[current_idx]
-        bb_upper_current = bb_upper.iloc[current_idx]
-        bb_lower_current = bb_lower.iloc[current_idx]
-        atr_current = atr.iloc[current_idx]
+
+        # Проверяем, что у нас достаточно данных
+        if (pd.isna(bb_upper.iloc[-1]) or
+            pd.isna(bb_lower.iloc[-1]) or
+            pd.isna(atr.iloc[-1])):
+            return {
+                'long_signal': False,
+                'short_signal': False,
+                'touching_lower': False,
+                'touching_upper': False,
+                'low_volatility': False,
+                'indicators': {
+                    'bb_upper': 0,
+                    'bb_middle': 0,
+                    'bb_lower': 0,
+                    'atr': 0,
+                    'avg_atr': 0,
+                    'bb_upper_series': bb_upper,
+                    'bb_middle_series': bb_middle,
+                    'bb_lower_series': bb_lower,
+                    'atr_series': atr
+                }
+            }
+
+        current_price = data['close'].iloc[-1]
+        bb_upper_current = bb_upper.iloc[-1]
+        bb_lower_current = bb_lower.iloc[-1]
+        atr_current = atr.iloc[-1]
         
         # Проверяем касание полос
         touching_lower = current_price <= bb_lower_current * 1.01  # 1% допуск
@@ -439,24 +472,18 @@ class IndicatorStrategy:
         stoch_k = config.get('stoch_rsi_k', 14)
         stoch_d = config.get('stoch_rsi_d', 3)
         
-        # Вычисляем индикаторы
+        # Вычисляем индикаторы (БЕЗ кэширования для корректной работы в бэктесте)
         supertrend, direction = self.indicators.calculate_supertrend(
             data['high'], data['low'], data['close'], st_period, st_mult,
-            f"supertrend_{st_period}_{st_mult}"
+            cache_key=None
         )
-        
+
         stoch_k_percent, stoch_d_percent = self.indicators.calculate_stochastic_rsi(
-            data['close'], stoch_k, stoch_d, 14, f"stoch_rsi_{stoch_k}_{stoch_d}"
+            data['close'], stoch_k, stoch_d, 14, cache_key=None
         )
         
-        # Получаем текущие значения
-        current_idx = len(data) - 1
-        
-        # Проверяем, что у нас достаточно данных
-        if (current_idx < 0 or 
-            pd.isna(direction.iloc[current_idx]) or 
-            pd.isna(stoch_k_percent.iloc[current_idx]) or 
-            pd.isna(stoch_d_percent.iloc[current_idx])):
+        # Получаем текущие значения (используем -1 для последнего элемента)
+        if (len(data) == 0 or len(direction) == 0 or len(stoch_k_percent) == 0 or len(stoch_d_percent) == 0):
             return {
                 'long_signal': False,
                 'short_signal': False,
@@ -475,10 +502,33 @@ class IndicatorStrategy:
                     'stoch_d_series': stoch_d_percent
                 }
             }
-        
-        direction_current = direction.iloc[current_idx]
-        stoch_k_current = stoch_k_percent.iloc[current_idx]
-        stoch_d_current = stoch_d_percent.iloc[current_idx]
+
+        # Проверяем, что у нас достаточно данных
+        if (pd.isna(direction.iloc[-1]) or
+            pd.isna(stoch_k_percent.iloc[-1]) or
+            pd.isna(stoch_d_percent.iloc[-1])):
+            return {
+                'long_signal': False,
+                'short_signal': False,
+                'trend_up': False,
+                'trend_down': False,
+                'stoch_oversold': False,
+                'stoch_overbought': False,
+                'indicators': {
+                    'supertrend': 0,
+                    'direction': 0,
+                    'stoch_k': 0,
+                    'stoch_d': 0,
+                    'supertrend_series': supertrend,
+                    'direction_series': direction,
+                    'stoch_k_series': stoch_k_percent,
+                    'stoch_d_series': stoch_d_percent
+                }
+            }
+
+        direction_current = direction.iloc[-1]
+        stoch_k_current = stoch_k_percent.iloc[-1]
+        stoch_d_current = stoch_d_percent.iloc[-1]
         
         # Проверяем направление SuperTrend
         trend_up = direction_current == 1
@@ -500,7 +550,7 @@ class IndicatorStrategy:
             'stoch_oversold': stoch_oversold,
             'stoch_overbought': stoch_overbought,
             'indicators': {
-                'supertrend': supertrend.iloc[current_idx],
+                'supertrend': supertrend.iloc[-1],
                 'direction': direction_current,
                 'stoch_k': stoch_k_current,
                 'stoch_d': stoch_d_current,

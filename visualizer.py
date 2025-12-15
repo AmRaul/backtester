@@ -35,9 +35,14 @@ class BacktestVisualizer:
         # Фильтруем end_of_data сделки
         self.completed_trades = [t for t in self.trade_history if t['reason'] != 'end_of_data']
 
+        # Индикаторы (будут вычислены при необходимости)
+        self.indicators_data = None
+
     def plot_price_and_trades(self,
                               show_dca: bool = True,
-                              show_levels: bool = True,
+                              show_levels: bool = False,
+                              show_ema: bool = False,
+                              show_rsi: bool = False,
                               height: int = 800) -> go.Figure:
         """
         Создает свечной график с метками всех сделок
@@ -45,6 +50,8 @@ class BacktestVisualizer:
         Args:
             show_dca: показывать ли DCA ордера
             show_levels: показывать ли уровни TP/SL
+            show_ema: показывать ли EMA (50, 200)
+            show_rsi: показывать ли RSI
             height: высота графика в пикселях
 
         Returns:
@@ -52,6 +59,10 @@ class BacktestVisualizer:
         """
         if self.data is None or self.data.empty:
             raise ValueError("Нет данных для отображения графика цены")
+
+        # Если нужны индикаторы, используем разные варианты
+        if show_ema or show_rsi:
+            return self._plot_with_indicators(show_dca, show_levels, show_ema, show_rsi, height)
 
         # Создаем фигуру
         fig = go.Figure()
@@ -72,7 +83,7 @@ class BacktestVisualizer:
         if self.completed_trades:
             self._add_trade_markers(fig, show_dca, show_levels)
 
-        # Настройка внешнего вида
+        # Настройка внешнего вида (в стиле TradingView)
         fig.update_layout(
             title=f"График цены и сделок - {self.config.get('symbol', 'Unknown')}",
             xaxis_title="Время",
@@ -87,10 +98,413 @@ class BacktestVisualizer:
                 y=0.99,
                 xanchor="left",
                 x=0.01
+            ),
+            # Улучшенная навигация как в TradingView
+            dragmode='pan',  # Режим перетаскивания по умолчанию
+            modebar=dict(
+                orientation='v',  # Вертикальная панель инструментов
+                bgcolor='rgba(0,0,0,0.5)',
+            ),
+            # Настройки осей для удобного зума
+            xaxis=dict(
+                autorange=True,
+                fixedrange=False,
+                rangeslider=dict(visible=False)
+            ),
+            yaxis=dict(
+                autorange=True,
+                fixedrange=False
             )
         )
 
         return fig
+
+    def _plot_with_indicators(self, show_dca: bool, show_levels: bool, show_ema: bool, show_rsi: bool, height: int) -> go.Figure:
+        """
+        Создает график с индикаторами (EMA и/или RSI)
+
+        Args:
+            show_dca: показывать ли DCA ордера
+            show_levels: показывать ли уровни TP/SL
+            show_ema: показывать ли EMA
+            show_rsi: показывать ли RSI
+            height: высота графика
+
+        Returns:
+            plotly Figure с subplot'ами или без
+        """
+        print(f"[DEBUG] _plot_with_indicators вызван! show_ema={show_ema}, show_rsi={show_rsi}")
+
+        # Вычисляем индикаторы
+        self._calculate_indicators()
+
+        print(f"[DEBUG] Индикаторы рассчитаны. indicators_data: {list(self.indicators_data.keys()) if self.indicators_data else 'None'}")
+
+        # Если только EMA - обычный график без subplot
+        if show_ema and not show_rsi:
+            return self._plot_with_ema_only(show_dca, show_levels, height)
+
+        # Если только RSI - subplot с RSI
+        if show_rsi and not show_ema:
+            return self._plot_with_rsi_only(show_dca, show_levels, height)
+
+        # Если оба - subplot с EMA на основном графике + RSI панель
+        # Создаем subplot с 2 рядами (цена + RSI)
+        fig = make_subplots(
+            rows=2, cols=1,
+            row_heights=[0.7, 0.3],
+            subplot_titles=('График цены и сделок', 'RSI'),
+            vertical_spacing=0.05,
+            shared_xaxes=True
+        )
+
+        # РЯД 1: Свечной график
+        fig.add_trace(
+            go.Candlestick(
+                x=self.data['timestamp'],
+                open=self.data['open'],
+                high=self.data['high'],
+                low=self.data['low'],
+                close=self.data['close'],
+                name='Цена',
+                increasing_line_color='#26a69a',
+                decreasing_line_color='#ef5350'
+            ),
+            row=1, col=1
+        )
+
+        # Добавляем EMA линии если есть
+        if self.indicators_data and 'ema_50' in self.indicators_data:
+            fig.add_trace(
+                go.Scatter(
+                    x=self.data['timestamp'],
+                    y=self.indicators_data['ema_50'],
+                    name='EMA 50',
+                    line=dict(color='#FFA726', width=2),
+                    mode='lines'
+                ),
+                row=1, col=1
+            )
+
+        if self.indicators_data and 'ema_200' in self.indicators_data:
+            fig.add_trace(
+                go.Scatter(
+                    x=self.data['timestamp'],
+                    y=self.indicators_data['ema_200'],
+                    name='EMA 200',
+                    line=dict(color='#42A5F5', width=2),
+                    mode='lines'
+                ),
+                row=1, col=1
+            )
+
+        # Добавляем метки сделок
+        if self.completed_trades:
+            self._add_trade_markers_subplot(fig, show_dca, show_levels, row=1)
+
+        # РЯД 2: RSI
+        if self.indicators_data and 'rsi' in self.indicators_data:
+            fig.add_trace(
+                go.Scatter(
+                    x=self.data['timestamp'],
+                    y=self.indicators_data['rsi'],
+                    name='RSI',
+                    line=dict(color='#AB47BC', width=2),
+                    mode='lines'
+                ),
+                row=2, col=1
+            )
+
+            # Уровни перекупленности/перепроданности
+            fig.add_hline(y=70, line_dash="dash", line_color="red",
+                         annotation_text="Перекуплен", row=2, col=1)
+            fig.add_hline(y=30, line_dash="dash", line_color="green",
+                         annotation_text="Перепродан", row=2, col=1)
+            fig.add_hline(y=50, line_dash="dot", line_color="gray", row=2, col=1)
+
+        # Настройка layout (увеличиваем высоту для subplot)
+        total_height = max(height, 1000)  # Минимум 1000px для subplot
+        fig.update_layout(
+            title=f"График с индикаторами - {self.config.get('symbol', 'Unknown')}",
+            height=total_height,
+            xaxis_rangeslider_visible=False,
+            hovermode='x unified',
+            template='plotly_dark',
+            showlegend=True,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+            dragmode='pan',
+            xaxis2_title="Время"
+        )
+
+        # Обновляем оси
+        fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
+        fig.update_yaxes(title_text="Цена", row=1, col=1)
+        fig.update_yaxes(title_text="RSI", range=[0, 100], row=2, col=1)
+
+        print(f"[DEBUG] _plot_with_indicators завершен. Traces в figure: {len(fig.data)}")
+        for i, trace in enumerate(fig.data):
+            trace_name = getattr(trace, 'name', 'unnamed')
+            print(f"  Trace {i}: {trace_name}")
+
+        return fig
+
+    def _plot_with_ema_only(self, show_dca: bool, show_levels: bool, height: int) -> go.Figure:
+        """Создает график только с EMA линиями (без subplot)"""
+        print("[DEBUG] _plot_with_ema_only вызван")
+
+        # Создаем обычный график
+        fig = go.Figure()
+
+        # Добавляем свечной график
+        fig.add_trace(go.Candlestick(
+            x=self.data['timestamp'],
+            open=self.data['open'],
+            high=self.data['high'],
+            low=self.data['low'],
+            close=self.data['close'],
+            name='Цена',
+            increasing_line_color='#26A69A',
+            decreasing_line_color='#EF5350'
+        ))
+
+        # Добавляем EMA линии
+        if self.indicators_data and 'ema_50' in self.indicators_data:
+            fig.add_trace(go.Scatter(
+                x=self.data['timestamp'],
+                y=self.indicators_data['ema_50'],
+                name='EMA 50',
+                line=dict(color='#FFA726', width=2),
+                opacity=0.8
+            ))
+
+        if self.indicators_data and 'ema_200' in self.indicators_data:
+            fig.add_trace(go.Scatter(
+                x=self.data['timestamp'],
+                y=self.indicators_data['ema_200'],
+                name='EMA 200',
+                line=dict(color='#42A5F5', width=2),
+                opacity=0.8
+            ))
+
+        # Добавляем метки сделок
+        self._add_trade_markers(fig, show_dca, show_levels)
+
+        # Настраиваем layout
+        fig.update_layout(
+            title='График цены и сделок с EMA',
+            xaxis_title='Время',
+            yaxis_title='Цена',
+            height=height,
+            xaxis_rangeslider_visible=False,
+            hovermode='x unified',
+            template='plotly_dark',
+            showlegend=True,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+            dragmode='pan'
+        )
+
+        print(f"[DEBUG] _plot_with_ema_only завершен. Traces: {len(fig.data)}")
+        return fig
+
+    def _plot_with_rsi_only(self, show_dca: bool, show_levels: bool, height: int) -> go.Figure:
+        """Создает график с subplot только для RSI"""
+        print("[DEBUG] _plot_with_rsi_only вызван")
+
+        # Создаем subplot с 2 рядами
+        fig = make_subplots(
+            rows=2, cols=1,
+            row_heights=[0.7, 0.3],
+            subplot_titles=('График цены и сделок', 'RSI'),
+            vertical_spacing=0.05,
+            shared_xaxes=True
+        )
+
+        # РЯД 1: Свечной график
+        fig.add_trace(
+            go.Candlestick(
+                x=self.data['timestamp'],
+                open=self.data['open'],
+                high=self.data['high'],
+                low=self.data['low'],
+                close=self.data['close'],
+                name='Цена',
+                increasing_line_color='#26A69A',
+                decreasing_line_color='#EF5350'
+            ),
+            row=1, col=1
+        )
+
+        # Добавляем метки сделок на первый subplot
+        self._add_trade_markers_subplot(fig, show_dca, show_levels, row=1)
+
+        # РЯД 2: RSI
+        if self.indicators_data and 'rsi' in self.indicators_data:
+            fig.add_trace(
+                go.Scatter(
+                    x=self.data['timestamp'],
+                    y=self.indicators_data['rsi'],
+                    name='RSI',
+                    line=dict(color='#AB47BC', width=2)
+                ),
+                row=2, col=1
+            )
+
+            # Добавляем линии уровней перекупленности/перепроданности
+            fig.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, row=2, col=1)
+            fig.add_hline(y=30, line_dash="dash", line_color="green", opacity=0.5, row=2, col=1)
+
+        # Настраиваем layout
+        fig.update_layout(
+            title='График цены и сделок с RSI',
+            height=max(height, 1000),
+            xaxis_rangeslider_visible=False,
+            hovermode='x unified',
+            template='plotly_dark',
+            showlegend=True,
+            legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+            dragmode='pan',
+            xaxis2_title="Время"
+        )
+
+        # Обновляем оси
+        fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
+        fig.update_yaxes(title_text="Цена", row=1, col=1)
+        fig.update_yaxes(title_text="RSI", range=[0, 100], row=2, col=1)
+
+        print(f"[DEBUG] _plot_with_rsi_only завершен. Traces: {len(fig.data)}")
+        return fig
+
+    def _calculate_indicators(self):
+        """Вычисляет индикаторы на основе конфигурации стратегии или дефолтные для визуализации"""
+        if self.data is None or self.data.empty:
+            return
+
+        try:
+            from indicators import TechnicalIndicators
+
+            ti = TechnicalIndicators()
+            self.indicators_data = {}
+
+            # Проверяем есть ли конфигурация индикаторов
+            indicators_config = self.config.get('indicators', {})
+
+            if indicators_config.get('enabled', False):
+                # Используем параметры из конфигурации стратегии
+                strategy_type = indicators_config.get('strategy_type')
+
+                if strategy_type == 'trend_momentum':
+                    config = indicators_config.get('trend_momentum', {})
+                    ema_short = config.get('ema_short', 50)
+                    ema_long = config.get('ema_long', 200)
+                    rsi_period = config.get('rsi_period', 14)
+
+                    self.indicators_data['ema_50'] = ti.calculate_ema(
+                        self.data['close'], ema_short
+                    )
+                    self.indicators_data['ema_200'] = ti.calculate_ema(
+                        self.data['close'], ema_long
+                    )
+                    self.indicators_data['rsi'] = ti.calculate_rsi(
+                        self.data['close'], rsi_period
+                    )
+                    return  # Выходим, чтобы не добавлять дефолтные индикаторы
+
+                elif strategy_type == 'volatility_bounce':
+                    config = indicators_config.get('volatility_bounce', {})
+                    bb_period = config.get('bb_period', 20)
+                    bb_std = config.get('bb_std', 2)
+
+                    bb_upper, bb_middle, bb_lower = ti.calculate_bollinger_bands(
+                        self.data['close'], bb_period, bb_std
+                    )
+                    self.indicators_data['bb_upper'] = bb_upper
+                    self.indicators_data['bb_middle'] = bb_middle
+                    self.indicators_data['bb_lower'] = bb_lower
+                    return
+
+                elif strategy_type == 'momentum_trend':
+                    config = indicators_config.get('momentum_trend', {})
+                    st_period = config.get('supertrend_period', 10)
+                    st_mult = config.get('supertrend_multiplier', 3)
+
+                    supertrend, direction = ti.calculate_supertrend(
+                        self.data['high'], self.data['low'], self.data['close'],
+                        st_period, st_mult
+                    )
+                    self.indicators_data['supertrend'] = supertrend
+                    self.indicators_data['direction'] = direction
+                    return
+
+            # Если индикаторы не включены в стратегии, используем дефолтные для визуализации
+            # EMA 50, EMA 200, RSI 14
+            print("[DEBUG] Используем дефолтные индикаторы для визуализации (EMA 50, 200, RSI 14)")
+            self.indicators_data['ema_50'] = ti.calculate_ema(self.data['close'], 50)
+            self.indicators_data['ema_200'] = ti.calculate_ema(self.data['close'], 200)
+            self.indicators_data['rsi'] = ti.calculate_rsi(self.data['close'], 14)
+
+        except ImportError:
+            print("Модуль indicators не найден - индикаторы не будут отображены")
+        except Exception as e:
+            print(f"Ошибка при вычислении индикаторов: {e}")
+
+    def _add_trade_markers_subplot(self, fig: go.Figure, show_dca: bool, show_levels: bool, row: int):
+        """Добавляет метки сделок на subplot"""
+        entry_times = []
+        entry_prices = []
+        exit_times_profit = []
+        exit_prices_profit = []
+        exit_times_loss = []
+        exit_prices_loss = []
+
+        for trade in self.completed_trades:
+            entry_times.append(trade['entry_time'])
+            entry_prices.append(trade['entry_price'])
+
+            if trade['pnl'] >= 0:
+                exit_times_profit.append(trade['exit_time'])
+                exit_prices_profit.append(trade['exit_price'])
+            else:
+                exit_times_loss.append(trade['exit_time'])
+                exit_prices_loss.append(trade['exit_price'])
+
+        # Маркеры входа
+        if entry_times:
+            fig.add_trace(
+                go.Scatter(
+                    x=entry_times, y=entry_prices,
+                    mode='markers',
+                    marker=dict(symbol='triangle-up', size=12, color='#00E676'),
+                    name='Вход',
+                    showlegend=True
+                ),
+                row=row, col=1
+            )
+
+        # Маркеры прибыльных выходов
+        if exit_times_profit:
+            fig.add_trace(
+                go.Scatter(
+                    x=exit_times_profit, y=exit_prices_profit,
+                    mode='markers',
+                    marker=dict(symbol='triangle-down', size=12, color='#26a69a'),
+                    name='Выход (прибыль)',
+                    showlegend=True
+                ),
+                row=row, col=1
+            )
+
+        # Маркеры убыточных выходов
+        if exit_times_loss:
+            fig.add_trace(
+                go.Scatter(
+                    x=exit_times_loss, y=exit_prices_loss,
+                    mode='markers',
+                    marker=dict(symbol='triangle-down', size=12, color='#ef5350'),
+                    name='Выход (убыток)',
+                    showlegend=True
+                ),
+                row=row, col=1
+            )
 
     def _add_trade_markers(self, fig: go.Figure, show_dca: bool, show_levels: bool):
         """Добавляет метки входов/выходов на график"""
@@ -116,12 +530,7 @@ class BacktestVisualizer:
             # Вход (первый ордер)
             entry_times.append(trade['entry_time'])
             entry_prices.append(trade['entry_price'])
-            entry_info = (
-                f"Вход<br>"
-                f"Цена: ${trade['entry_price']:.4f}<br>"
-                f"Количество: {trade['quantity']:.6f}<br>"
-                f"Время: {trade['entry_time']}"
-            )
+            entry_info = f"Вход ${trade['entry_price']:.4f}"
             entry_text.append(entry_info)
 
             # Выход
@@ -143,14 +552,9 @@ class BacktestVisualizer:
 
             reason_text = reason_map.get(trade['reason'], trade['reason'])
 
-            exit_info = (
-                f"Выход<br>"
-                f"Цена: ${exit_price:.4f}<br>"
-                f"Средняя цена входа: ${avg_price:.4f}<br>"
-                f"PnL: ${pnl:.2f} ({pnl_percent:+.2f}%)<br>"
-                f"Причина: {reason_text}<br>"
-                f"Время: {exit_time}"
-            )
+            exit_info = f"Выход ${exit_price:.4f}, PnL: {pnl_percent:+.2f}%"
+            if trade['reason'] != 'take_profit':  # Показываем причину только если не TP
+                exit_info += f" ({reason_text})"
 
             if pnl >= 0:
                 exit_times_profit.append(exit_time)
@@ -175,12 +579,7 @@ class BacktestVisualizer:
                     dca_times.append(dca['timestamp'])
                     dca_prices.append(dca['price'])
                     dca_level = dca.get('dca_level', '?')
-                    dca_info = (
-                        f"DCA #{dca_level}<br>"
-                        f"Цена: ${dca['price']:.4f}<br>"
-                        f"Количество: {dca['quantity']:.6f}<br>"
-                        f"Время: {dca['timestamp']}"
-                    )
+                    dca_info = f"DCA #{dca_level} ${dca['price']:.4f}"
                     dca_text.append(dca_info)
 
             # Уровни TP/SL

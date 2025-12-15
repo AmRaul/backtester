@@ -13,6 +13,9 @@
                         Управление стратегиями
                     </h5>
                     <div>
+                        <button class="btn btn-info btn-sm me-2" onclick="loadExampleConfigs()">
+                            <i class="fas fa-download me-1"></i>Загрузить примеры
+                        </button>
                         <button class="btn btn-success btn-sm me-2" onclick="showCreateStrategyModal()">
                             <i class="fas fa-plus me-1"></i>Создать новую
                         </button>
@@ -296,6 +299,30 @@
 {% block extra_js %}
 <script>
 let currentConfigs = [];
+
+// Загрузка примеров конфигураций
+async function loadExampleConfigs() {
+    if (!confirm('Загрузить примеры конфигураций из config_examples.json?\n\nБудут добавлены готовые стратегии с индикаторами (EMA+RSI, Bollinger Bands и др.)')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/load-example-configs', {
+            method: 'POST'
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showNotification(`✅ ${data.message}`, 'success');
+            // Перезагружаем список конфигураций
+            loadConfigs();
+        } else {
+            showNotification(`Ошибка: ${data.error}`, 'error');
+        }
+    } catch (error) {
+        showNotification(`Ошибка загрузки примеров: ${error.message}`, 'error');
+    }
+}
 
 // Загрузка конфигураций
 async function loadConfigs() {

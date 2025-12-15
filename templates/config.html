@@ -21,8 +21,13 @@
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="indicators-tab" data-bs-toggle="tab" data-bs-target="#indicators" type="button" role="tab">
+                            <i class="fas fa-chart-line me-2"></i>Индикаторы
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
                         <button class="nav-link" id="entry-tab" data-bs-toggle="tab" data-bs-target="#entry" type="button" role="tab">
-                            <i class="fas fa-sign-in-alt me-2"></i>Условия входа
+                            <i class="fas fa-sign-in-alt me-2"></i>Условия входа (ручные)
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
@@ -90,6 +95,110 @@
                                         </button>
                                     </div>
                                     <small class="text-muted">Текущая цена (<span id="currentExchange">Binance</span> <span id="currentMarketType">Spot</span>): <span id="currentPriceMain" class="text-primary fw-bold">-</span></small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Индикаторы -->
+                    <div class="tab-pane fade" id="indicators" role="tabpanel">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Индикаторные стратегии</strong> - используют технический анализ (EMA, RSI, Bollinger Bands) для автоматического определения точек входа/выхода
+                        </div>
+
+                        <div class="form-check form-switch mb-4">
+                            <input class="form-check-input" type="checkbox" id="indicatorsEnabled">
+                            <label class="form-check-label" for="indicatorsEnabled">
+                                <strong>Включить индикаторную стратегию</strong>
+                            </label>
+                        </div>
+
+                        <div id="indicatorsSettings" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="strategyType" class="form-label">Тип стратегии</label>
+                                        <select class="form-select" id="strategyType">
+                                            <option value="trend_momentum">Тренд + Импульс (EMA + RSI)</option>
+                                            <option value="volatility_bounce">Волатильность + Отскок (Bollinger Bands + ATR)</option>
+                                            <option value="momentum_trend">Моментум + Тренд (SuperTrend + Stoch RSI)</option>
+                                        </select>
+                                        <small class="text-muted">Выберите индикаторную стратегию для анализа</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="alert alert-warning mb-0">
+                                        <small>
+                                            <i class="fas fa-exclamation-triangle me-1"></i>
+                                            При включении индикаторов, "Условия входа (ручные)" будут игнорироваться
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Настройки Тренд + Импульс -->
+                            <div id="trendMomentumSettings" class="strategy-settings">
+                                <h6 class="mt-3 mb-3"><i class="fas fa-chart-line me-2"></i>Параметры: Тренд + Импульс (EMA + RSI)</h6>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="emaShort" class="form-label">EMA Короткая</label>
+                                            <input type="number" class="form-control" id="emaShort" value="50" min="5" max="100">
+                                            <small class="text-muted">Быстрая EMA (обычно 50)</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="emaLong" class="form-label">EMA Длинная</label>
+                                            <input type="number" class="form-control" id="emaLong" value="200" min="50" max="500">
+                                            <small class="text-muted">Медленная EMA (обычно 200)</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="mb-3">
+                                            <label for="rsiPeriodStrategy" class="form-label">Период RSI</label>
+                                            <input type="number" class="form-control" id="rsiPeriodStrategy" value="14" min="5" max="30">
+                                            <small class="text-muted">Стандартный период (14)</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="rsiOversold" class="form-label">RSI Перепроданность</label>
+                                            <input type="number" class="form-control" id="rsiOversold" value="30" min="10" max="50">
+                                            <small class="text-muted">Уровень для покупки (обычно 30)</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="rsiOverbought" class="form-label">RSI Перекупленность</label>
+                                            <input type="number" class="form-control" id="rsiOverbought" value="70" min="50" max="90">
+                                            <small class="text-muted">Уровень для продажи (обычно 70)</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="alert alert-success">
+                                    <small>
+                                        <strong>Логика входа:</strong> Вход в LONG когда EMA50 > EMA200 (восходящий тренд) И RSI < 40 (коррекция)
+                                    </small>
+                                </div>
+                            </div>
+
+                            <!-- Настройки Волатильность (пока скрыты) -->
+                            <div id="volatilityBounceSettings" class="strategy-settings" style="display: none;">
+                                <h6 class="mt-3 mb-3"><i class="fas fa-chart-area me-2"></i>Параметры: Волатильность + Отскок</h6>
+                                <div class="alert alert-info">
+                                    <small>Настройки Bollinger Bands и ATR - пока используйте JSON редактор для детальной настройки</small>
+                                </div>
+                            </div>
+
+                            <!-- Настройки Моментум (пока скрыты) -->
+                            <div id="momentumTrendSettings" class="strategy-settings" style="display: none;">
+                                <h6 class="mt-3 mb-3"><i class="fas fa-rocket me-2"></i>Параметры: Моментум + Тренд</h6>
+                                <div class="alert alert-info">
+                                    <small>Настройки SuperTrend и Stochastic RSI - пока используйте JSON редактор для детальной настройки</small>
                                 </div>
                             </div>
                         </div>
@@ -526,6 +635,27 @@
 let currentTaskId = null;
 let progressInterval = null;
 
+// === ИНДИКАТОРЫ ===
+// Переключение включения индикаторов
+document.getElementById('indicatorsEnabled').addEventListener('change', function() {
+    document.getElementById('indicatorsSettings').style.display = this.checked ? 'block' : 'none';
+});
+
+// Переключение типа стратегии
+document.getElementById('strategyType').addEventListener('change', function() {
+    // Скрываем все настройки
+    document.querySelectorAll('.strategy-settings').forEach(el => el.style.display = 'none');
+
+    // Показываем нужные
+    if (this.value === 'trend_momentum') {
+        document.getElementById('trendMomentumSettings').style.display = 'block';
+    } else if (this.value === 'volatility_bounce') {
+        document.getElementById('volatilityBounceSettings').style.display = 'block';
+    } else if (this.value === 'momentum_trend') {
+        document.getElementById('momentumTrendSettings').style.display = 'block';
+    }
+});
+
 // Переключение источника данных
 document.querySelectorAll('input[name="dataSource"]').forEach(radio => {
     radio.addEventListener('change', function() {
@@ -883,16 +1013,37 @@ async function runBacktest() {
     try {
         // Собираем конфигурацию из формы
         const entryType = document.getElementById('entryType').value;
+        const indicatorsEnabled = document.getElementById('indicatorsEnabled').checked;
+
         const config = {
             start_balance: parseFloat(document.getElementById('startBalance').value),
             leverage: parseInt(document.getElementById('leverage').value),
             order_type: document.getElementById('orderType').value,
-            entry_conditions: {
-                type: entryType === 'immediate' ? 'immediate' : 'manual',
-                trigger: entryType === 'immediate' ? null : entryType,
-                percent: entryType === 'immediate' ? null : parseFloat(document.getElementById('entryPercent').value),
-                rsi_period: entryType.includes('rsi') ? parseInt(document.getElementById('rsiPeriod').value) : null
-            },
+
+            // Индикаторы
+            ...(indicatorsEnabled ? {
+                indicators: {
+                    enabled: true,
+                    strategy_type: document.getElementById('strategyType').value,
+                    trend_momentum: {
+                        ema_short: parseInt(document.getElementById('emaShort').value),
+                        ema_long: parseInt(document.getElementById('emaLong').value),
+                        rsi_period: parseInt(document.getElementById('rsiPeriodStrategy').value),
+                        rsi_oversold: parseInt(document.getElementById('rsiOversold').value),
+                        rsi_overbought: parseInt(document.getElementById('rsiOverbought').value)
+                    }
+                },
+                entry_conditions: {
+                    type: 'indicator_based'
+                }
+            } : {
+                entry_conditions: {
+                    type: entryType === 'immediate' ? 'immediate' : 'manual',
+                    trigger: entryType === 'immediate' ? null : entryType,
+                    percent: entryType === 'immediate' ? null : parseFloat(document.getElementById('entryPercent').value),
+                    rsi_period: entryType.includes('rsi') ? parseInt(document.getElementById('rsiPeriod').value) : null
+                }
+            }),
             first_order: {
                 amount_percent: parseFloat(document.getElementById('firstOrderAmount').value),
                 amount_fixed: document.getElementById('firstOrderFixed').value ? parseFloat(document.getElementById('firstOrderFixed').value) : null,
