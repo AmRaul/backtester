@@ -179,26 +179,37 @@ jobs:
             # Логин в GitHub Container Registry
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            # Создаём директорию для SSL сертификатов
-            mkdir -p traefik/letsencrypt
-            touch traefik/letsencrypt/acme.json
-            chmod 600 traefik/letsencrypt/acme.json
-
-            # Запускаем Traefik (если ещё не запущен)
-            echo "Starting Traefik..."
-            docker compose -f docker-compose.traefik.yml up -d
-
             # Обновляем и запускаем основное приложение
             echo "Deploying backtester..."
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d
+
+            # Устанавливаем Nginx конфигурацию (только если ещё не установлена)
+            if [ ! -f /etc/nginx/sites-enabled/backtester.conf ]; then
+              echo "Setting up Nginx configuration..."
+              sudo cp nginx/backtester.conf /etc/nginx/sites-available/backtester.conf
+              sudo ln -s /etc/nginx/sites-available/backtester.conf /etc/nginx/sites-enabled/
+
+              # Проверяем конфигурацию Nginx
+              sudo nginx -t
+
+              # Получаем SSL сертификат
+              sudo certbot --nginx -d ${{ secrets.DOMAIN }} --non-interactive --agree-tos -m ${{ secrets.LETSENCRYPT_EMAIL }}
+
+              # Перезагружаем Nginx
+              sudo systemctl reload nginx
+
+              echo "✅ Nginx configuration installed and SSL certificate obtained!"
+            else
+              echo "Nginx configuration already exists, reloading..."
+              sudo nginx -t && sudo systemctl reload nginx
+            fi
 
             # Очищаем неиспользуемые образы
             docker system prune -f
 
             # Проверяем статус сервисов
             echo "Checking services status..."
-            docker compose -f docker-compose.traefik.yml ps
             docker compose -f docker-compose.prod.yml ps
 
             echo "✅ Deployment completed!"

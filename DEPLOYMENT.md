@@ -1,8 +1,8 @@
-# Инструкция по развертыванию с Traefik
+# Инструкция по развертыванию с Nginx
 
 ## Настройка поддомена
 
-### 1. Добавить DNS запись
+### 1. Добавить DNS запись ✅
 
 В настройках вашего домена `hub-cargo.ru` добавьте A-запись:
 
@@ -20,7 +20,7 @@ TTL: 3600
 ping backtester.hub-cargo.ru
 ```
 
-### 2. Проверить GitHub Secrets
+### 2. Проверить GitHub Secrets ✅
 
 Убедитесь, что в GitHub Actions → Secrets добавлены следующие переменные:
 
@@ -38,16 +38,17 @@ ping backtester.hub-cargo.ru
 
 ```bash
 git add .
-git commit -m "Add Traefik reverse proxy configuration"
+git commit -m "Add Nginx reverse proxy configuration"
 git push origin main
 ```
 
 GitHub Actions автоматически:
 1. Соберёт Docker образы
 2. Создаст `.env` файл на сервере из Secrets
-3. Запустит Traefik
-4. Запустит backtester приложение
-5. Получит SSL сертификат от Let's Encrypt
+3. Запустит backtester приложение
+4. Установит Nginx конфигурацию (если ещё не установлена)
+5. Получит SSL сертификат от Let's Encrypt через Certbot
+6. Перезагрузит Nginx
 
 ### 4. Проверка
 
@@ -72,20 +73,25 @@ cd /opt/backtester
 cp .env.example .env
 nano .env  # Заполните реальные значения
 
-# 4. Создайте директорию для SSL сертификатов
-mkdir -p traefik/letsencrypt
-touch traefik/letsencrypt/acme.json
-chmod 600 traefik/letsencrypt/acme.json
-
-# 5. Запустите Traefik
-docker compose -f docker-compose.traefik.yml up -d
-
-# 6. Запустите приложение
+# 4. Запустите приложение
 docker compose -f docker-compose.prod.yml up -d
 
-# 7. Проверьте логи
-docker compose -f docker-compose.traefik.yml logs -f
+# 5. Установите Nginx конфигурацию
+sudo cp nginx/backtester.conf /etc/nginx/sites-available/backtester.conf
+sudo ln -s /etc/nginx/sites-available/backtester.conf /etc/nginx/sites-enabled/
+
+# 6. Проверьте конфигурацию Nginx
+sudo nginx -t
+
+# 7. Получите SSL сертификат
+sudo certbot --nginx -d backtester.hub-cargo.ru --non-interactive --agree-tos -m your-email@example.com
+
+# 8. Перезагрузите Nginx
+sudo systemctl reload nginx
+
+# 9. Проверьте логи
 docker compose -f docker-compose.prod.yml logs -f
+sudo tail -f /var/log/nginx/backtester.access.log
 ```
 
 ## Управление
@@ -93,87 +99,152 @@ docker compose -f docker-compose.prod.yml logs -f
 ### Проверка статуса
 
 ```bash
-docker compose -f docker-compose.traefik.yml ps
+# Docker контейнеры
 docker compose -f docker-compose.prod.yml ps
+
+# Nginx
+sudo systemctl status nginx
 ```
 
 ### Просмотр логов
 
 ```bash
-# Traefik
-docker compose -f docker-compose.traefik.yml logs -f traefik
-
-# Backtester
+# Backtester приложение
 docker compose -f docker-compose.prod.yml logs -f backtester-web
+
+# Nginx access log
+sudo tail -f /var/log/nginx/backtester.access.log
+
+# Nginx error log
+sudo tail -f /var/log/nginx/backtester.error.log
 ```
 
 ### Перезапуск
 
 ```bash
+# Backtester
 docker compose -f docker-compose.prod.yml restart
+
+# Nginx
+sudo systemctl reload nginx
 ```
 
 ### Остановка
 
 ```bash
 docker compose -f docker-compose.prod.yml down
-docker compose -f docker-compose.traefik.yml down
 ```
 
 ## SSL сертификат
 
-- Traefik автоматически получает SSL сертификат от Let's Encrypt
-- Сертификат хранится в `traefik/letsencrypt/acme.json`
-- Автоматически обновляется каждые 90 дней
+- Certbot автоматически получает SSL сертификат от Let's Encrypt
+- Сертификат хранится в `/etc/letsencrypt/live/backtester.hub-cargo.ru/`
+- Автоматически обновляется каждые 90 дней (через cron job certbot)
 - Первое получение сертификата занимает ~30 секунд
+
+### Обновление сертификата вручную
+
+```bash
+sudo certbot renew
+sudo systemctl reload nginx
+```
 
 ## Архитектура
 
 ```
 Интернет (порты 80, 443)
          ↓
-    Traefik (reverse proxy)
+    Nginx (reverse proxy)
          ↓
-backtester.hub-cargo.ru → Flask App (порт 8000, внутренний)
+backtester.hub-cargo.ru → Flask App (Docker контейнер, порт 8000)
                            ↓
-                         Redis (порт 6379, внутренний)
+                         Redis (Docker контейнер, порт 6379)
 ```
 
 ## Безопасность
 
-✅ Только порты 80 и 443 открыты наружу
-✅ Backtester (8000) доступен только через Traefik
+✅ Только порты 80 и 443 открыты наружу на Nginx
+✅ Backtester (8000) доступен только локально через Nginx proxy
 ✅ Redis (6379) доступен только внутри Docker сети
 ✅ Автоматический HTTPS с Let's Encrypt
 ✅ HTTP → HTTPS редирект
+✅ Security headers (X-Frame-Options, X-Content-Type-Options, X-XSS-Protection)
 
 ## Troubleshooting
 
 ### Сертификат не получен
 
-Проверьте логи Traefik:
+Проверьте логи Certbot:
 ```bash
-docker compose -f docker-compose.traefik.yml logs traefik
+sudo certbot certificates
+sudo tail -f /var/log/letsencrypt/letsencrypt.log
 ```
 
 Убедитесь, что:
-- DNS запись корректна и распространилась
-- Порты 80 и 443 открыты на сервере
+- DNS запись корректна и распространилась (`ping backtester.hub-cargo.ru`)
+- Порты 80 и 443 открыты и не заблокированы файрволом
 - Email в LETSENCRYPT_EMAIL корректный
+- Nginx конфигурация корректна (`sudo nginx -t`)
 
 ### Приложение недоступно
 
 1. Проверьте статус контейнеров:
 ```bash
 docker ps
+docker compose -f docker-compose.prod.yml ps
 ```
 
-2. Проверьте логи:
+2. Проверьте статус Nginx:
+```bash
+sudo systemctl status nginx
+sudo nginx -t
+```
+
+3. Проверьте логи приложения:
 ```bash
 docker compose -f docker-compose.prod.yml logs backtester-web
 ```
 
-3. Убедитесь, что Traefik network создан:
+4. Проверьте логи Nginx:
 ```bash
-docker network ls | grep traefik
+sudo tail -f /var/log/nginx/backtester.error.log
+```
+
+5. Проверьте, что backtester слушает порт 8000:
+```bash
+curl http://localhost:8000
+```
+
+### 502 Bad Gateway
+
+Это означает, что Nginx не может подключиться к Docker контейнеру:
+
+1. Проверьте, что контейнер запущен:
+```bash
+docker ps | grep backtester
+```
+
+2. Проверьте, что приложение слушает порт 8000:
+```bash
+docker exec backtester_web_prod curl http://localhost:8000/health
+```
+
+3. Если используете Docker на отдельной сети, обновите `upstream` в nginx конфиге на IP контейнера:
+```bash
+docker inspect backtester_web_prod | grep IPAddress
+```
+
+### Редирект на hub-cargo.ru
+
+Если backtester.hub-cargo.ru редиректит на hub-cargo.ru, проверьте:
+
+1. Nginx конфигурация установлена:
+```bash
+ls -la /etc/nginx/sites-enabled/backtester.conf
+```
+
+2. Нет конфликтов с другими конфигурациями:
+```bash
+sudo nginx -t
+grep -r "backtester" /etc/nginx/sites-enabled/
 ```
