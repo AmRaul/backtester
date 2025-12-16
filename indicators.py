@@ -560,3 +560,162 @@ class IndicatorStrategy:
                 'stoch_d_series': stoch_d_percent
             }
         }
+
+    def custom_signal(self, data: pd.DataFrame, config: dict) -> dict:
+        """
+        Кастомная стратегия с возможностью выбора любой комбинации индикаторов
+
+        Args:
+            data: DataFrame с OHLCV данными
+            config: конфигурация с выбранными индикаторами
+
+        Returns:
+            dict с сигналами и значениями индикаторов
+        """
+        selected = config.get('selected_indicators', {})
+        result = {
+            'long_signal': False,
+            'short_signal': False,
+            'indicators': {}
+        }
+
+        # Если ничего не выбрано, возвращаем пустой результат
+        if not any(selected.values()):
+            return result
+
+        # Список условий для long и short сигналов
+        long_conditions = []
+        short_conditions = []
+
+        # EMA - трендовый фильтр
+        if selected.get('ema', False):
+            ema_config = config.get('ema', {})
+            ema_short_period = ema_config.get('short_period', 50)
+            ema_long_period = ema_config.get('long_period', 200)
+
+            ema_short = self.indicators.calculate_ema(data['close'], ema_short_period, cache_key=None)
+            ema_long = self.indicators.calculate_ema(data['close'], ema_long_period, cache_key=None)
+
+            if len(ema_short) > 0 and len(ema_long) > 0 and not pd.isna(ema_short.iloc[-1]) and not pd.isna(ema_long.iloc[-1]):
+                trend_up = ema_short.iloc[-1] > ema_long.iloc[-1]
+                trend_down = ema_short.iloc[-1] < ema_long.iloc[-1]
+
+                long_conditions.append(trend_up)
+                short_conditions.append(trend_down)
+
+                result['indicators']['ema_short'] = ema_short.iloc[-1]
+                result['indicators']['ema_long'] = ema_long.iloc[-1]
+
+        # RSI - моментум индикатор
+        if selected.get('rsi', False):
+            rsi_config = config.get('rsi', {})
+            rsi_period = rsi_config.get('period', 14)
+            rsi_oversold = rsi_config.get('oversold', 30)
+            rsi_overbought = rsi_config.get('overbought', 70)
+
+            rsi = self.indicators.calculate_rsi(data['close'], rsi_period, cache_key=None)
+
+            if len(rsi) > 0 and not pd.isna(rsi.iloc[-1]):
+                rsi_current = rsi.iloc[-1]
+
+                # Более мягкие условия для RSI
+                long_conditions.append(rsi_current < 40)
+                short_conditions.append(rsi_current > 60)
+
+                result['indicators']['rsi'] = rsi_current
+
+        # Bollinger Bands - волатильность
+        if selected.get('bollinger_bands', False):
+            bb_config = config.get('bollinger_bands', {})
+            bb_period = bb_config.get('period', 20)
+            bb_std = bb_config.get('std_dev', 2)
+
+            bb_upper, bb_middle, bb_lower = self.indicators.calculate_bollinger_bands(
+                data['close'], bb_period, bb_std, cache_key=None
+            )
+
+            if len(bb_lower) > 0 and len(bb_upper) > 0 and not pd.isna(bb_lower.iloc[-1]) and not pd.isna(bb_upper.iloc[-1]):
+                current_price = data['close'].iloc[-1]
+
+                # Касание нижней/верхней полосы
+                touching_lower = current_price <= bb_lower.iloc[-1] * 1.01
+                touching_upper = current_price >= bb_upper.iloc[-1] * 0.99
+
+                long_conditions.append(touching_lower)
+                short_conditions.append(touching_upper)
+
+                result['indicators']['bb_upper'] = bb_upper.iloc[-1]
+                result['indicators']['bb_middle'] = bb_middle.iloc[-1]
+                result['indicators']['bb_lower'] = bb_lower.iloc[-1]
+
+        # ATR - дополнительный фильтр волатильности
+        if selected.get('atr', False):
+            atr_config = config.get('atr', {})
+            atr_period = atr_config.get('period', 14)
+
+            atr = self.indicators.calculate_atr(
+                data['high'], data['low'], data['close'], atr_period, cache_key=None
+            )
+
+            if len(atr) > 0 and not pd.isna(atr.iloc[-1]):
+                atr_current = atr.iloc[-1]
+                avg_atr = atr.tail(20).mean() if len(atr) >= 20 else atr_current
+
+                # Низкая волатильность - хорошо для входа
+                low_volatility = atr_current < avg_atr * 0.8
+
+                # ATR сам по себе не генерирует сигналы, только фильтрует
+                if low_volatility:
+                    # Не добавляем условие, но сохраняем информацию
+                    pass
+
+                result['indicators']['atr'] = atr_current
+                result['indicators']['avg_atr'] = avg_atr
+
+        # SuperTrend - трендовый индикатор
+        if selected.get('supertrend', False):
+            st_config = config.get('supertrend', {})
+            st_period = st_config.get('period', 10)
+            st_mult = st_config.get('multiplier', 3)
+
+            supertrend, direction = self.indicators.calculate_supertrend(
+                data['high'], data['low'], data['close'], st_period, st_mult, cache_key=None
+            )
+
+            if len(direction) > 0 and not pd.isna(direction.iloc[-1]):
+                trend_up = direction.iloc[-1] == 1
+                trend_down = direction.iloc[-1] == -1
+
+                long_conditions.append(trend_up)
+                short_conditions.append(trend_down)
+
+                result['indicators']['supertrend'] = supertrend.iloc[-1]
+                result['indicators']['direction'] = direction.iloc[-1]
+
+        # Stochastic RSI - моментум индикатор
+        if selected.get('stochastic_rsi', False):
+            stoch_config = config.get('stochastic_rsi', {})
+            stoch_k = stoch_config.get('k_period', 14)
+            stoch_d = stoch_config.get('d_period', 3)
+            stoch_rsi_period = stoch_config.get('rsi_period', 14)
+
+            stoch_k_percent, stoch_d_percent = self.indicators.calculate_stochastic_rsi(
+                data['close'], stoch_k, stoch_d, stoch_rsi_period, cache_key=None
+            )
+
+            if len(stoch_k_percent) > 0 and not pd.isna(stoch_k_percent.iloc[-1]):
+                stoch_oversold = stoch_k_percent.iloc[-1] < 20
+                stoch_overbought = stoch_k_percent.iloc[-1] > 80
+
+                long_conditions.append(stoch_oversold)
+                short_conditions.append(stoch_overbought)
+
+                result['indicators']['stoch_k'] = stoch_k_percent.iloc[-1]
+                result['indicators']['stoch_d'] = stoch_d_percent.iloc[-1]
+
+        # Определяем финальные сигналы
+        # Требуем, чтобы ВСЕ выбранные индикаторы давали согласованный сигнал
+        result['long_signal'] = all(long_conditions) if long_conditions else False
+        result['short_signal'] = all(short_conditions) if short_conditions else False
+
+        return result

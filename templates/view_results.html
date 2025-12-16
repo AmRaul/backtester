@@ -3,30 +3,33 @@
 {% block title %}Результаты бэктеста {{ task_id[:8] }} - Crypto Backtester{% endblock %}
 
 {% block content %}
-<div class="row mt-4">
-    <div class="col-12">
-        <!-- Заголовок -->
-        <div class="card mb-4">
-            <div class="card-header bg-primary text-white">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h5 class="card-title mb-0">
-                        <i class="fas fa-chart-line me-2"></i>
-                        Результаты бэктеста
-                    </h5>
-                    <div>
-                        <span class="badge bg-light text-dark me-2">ID: {{ task_id[:8] }}...</span>
-                        <a href="{{ url_for('visualization_page', task_id=task_id) }}" class="btn btn-success btn-sm me-2">
-                            <i class="fas fa-chart-line me-1"></i>Интерактивная визуализация
-                        </a>
-                        <a href="{{ url_for('results_page') }}" class="btn btn-outline-light btn-sm">
-                            <i class="fas fa-arrow-left me-1"></i>Назад к списку
-                        </a>
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <!-- Заголовок -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                        <div>
+                            <h4 class="mb-1">
+                                <i class="fas fa-chart-line me-2 text-primary"></i>
+                                Результаты бэктеста
+                            </h4>
+                            <span class="badge bg-secondary">ID: {{ task_id[:8] }}...</span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <a href="{{ url_for('visualization_page', task_id=task_id) }}" class="btn btn-success">
+                                <i class="fas fa-chart-line me-1"></i>Интерактивная визуализация
+                            </a>
+                            <a href="{{ url_for('results_page') }}" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left me-1"></i>Назад к списку
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
-</div>
 
 <!-- Основные метрики -->
 <div class="row">

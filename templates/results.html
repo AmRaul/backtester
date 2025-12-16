@@ -3,15 +3,16 @@
 {% block title %}Результаты бэктестов - Crypto Backtester{% endblock %}
 
 {% block content %}
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header bg-success text-white">
-                <h5 class="card-title mb-0">
-                    <i class="fas fa-chart-bar me-2"></i>
-                    Результаты бэктестирования
-                </h5>
-            </div>
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">
+                        <i class="fas fa-chart-bar me-2 text-primary"></i>
+                        Результаты бэктестирования
+                    </h4>
+                </div>
             <div class="card-body">
                 {% if tasks %}
                 <div class="table-responsive">
@@ -142,80 +143,81 @@
                 </div>
                 {% endif %}
             </div>
+            </div>
         </div>
     </div>
-</div>
 
-<!-- Статистика (если есть результаты) -->
-{% if tasks %}
-<div class="row mt-4">
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <h5 class="card-title text-primary">{{ tasks|length }}</h5>
-                <p class="card-text small">Всего бэктестов</p>
+    <!-- Статистика (если есть результаты) -->
+    {% if tasks %}
+    <div class="row mt-4">
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="h2 text-primary mb-2">{{ tasks|length }}</div>
+                    <p class="mb-0 text-muted">Всего бэктестов</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="h2 text-success mb-2">
+                        {{ tasks|selectattr('status', 'equalto', 'completed')|list|length }}
+                    </div>
+                    <p class="mb-0 text-muted">Завершено</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="h2 text-danger mb-2">
+                        {{ tasks|selectattr('status', 'equalto', 'error')|list|length }}
+                    </div>
+                    <p class="mb-0 text-muted">Ошибок</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-3 col-md-6 mb-3">
+            <div class="card text-center">
+                <div class="card-body">
+                    <div class="h2 text-warning mb-2">
+                        {{ tasks|rejectattr('status', 'in', ['completed', 'error'])|list|length }}
+                    </div>
+                    <p class="mb-0 text-muted">В процессе</p>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <h5 class="card-title text-success">
-                    {{ tasks|selectattr('status', 'equalto', 'completed')|list|length }}
-                </h5>
-                <p class="card-text small">Завершено</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <h5 class="card-title text-danger">
-                    {{ tasks|selectattr('status', 'equalto', 'error')|list|length }}
-                </h5>
-                <p class="card-text small">Ошибок</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <h5 class="card-title text-warning">
-                    {{ tasks|rejectattr('status', 'in', ['completed', 'error'])|list|length }}
-                </h5>
-                <p class="card-text small">В процессе</p>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
+    {% endif %}
 
-<!-- Быстрые действия -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <h6 class="card-title mb-0">
-                    <i class="fas fa-bolt me-2"></i>
-                    Быстрые действия
-                </h6>
-            </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-4">
-                        <a href="{{ url_for('config_page') }}" class="btn btn-primary w-100 mb-2">
-                            <i class="fas fa-plus me-2"></i>Новый бэктест
-                        </a>
-                    </div>
-                    <div class="col-md-4">
-                        <button class="btn btn-outline-info w-100 mb-2" onclick="refreshResults()">
-                            <i class="fas fa-sync me-2"></i>Обновить список
-                        </button>
-                    </div>
-                    <div class="col-md-4">
-                        <button class="btn btn-outline-secondary w-100 mb-2" onclick="clearOldResults()">
-                            <i class="fas fa-trash me-2"></i>Очистить старые
-                        </button>
+    <!-- Быстрые действия -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-bolt me-2 text-primary"></i>
+                        Быстрые действия
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <a href="{{ url_for('config_page') }}" class="btn btn-primary w-100">
+                                <i class="fas fa-plus me-2"></i>Новый бэктест
+                            </a>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-info w-100" onclick="refreshResults()">
+                                <i class="fas fa-sync me-2"></i>Обновить список
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-secondary w-100" onclick="clearOldResults()">
+                                <i class="fas fa-trash me-2"></i>Очистить старые
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -227,12 +229,12 @@
 <div class="modal fade" id="errorModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger">
                     <i class="fas fa-exclamation-triangle me-2"></i>
                     Ошибка выполнения
                 </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <div id="errorMessage" class="alert alert-danger">

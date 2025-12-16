@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backtester-web:
     image: ghcr.io/${GITHUB_REPOSITORY:-username/backtester}-web:latest
@@ -12,7 +10,7 @@ services:
       - ./reports:/app/reports
       - ./logs:/app/logs
       - ./db:/app/db
-      - ./config.json:/app/config.json:ro
+      - ./results:/app/results
     environment:
       - PYTHONUNBUFFERED=1
       - FLASK_ENV=production

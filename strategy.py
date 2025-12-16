@@ -165,15 +165,22 @@ class TradingStrategy:
             # Проверяем, включены ли индикаторы в конфигурации
             indicators_config = config.get('indicators', {})
             self.indicators_enabled = indicators_config.get('enabled', False)
-            
+
             if self.indicators_enabled:
-                self.indicator_strategy = indicators_config.get('strategy_type', 'trend_momentum')
-                self.indicator_config = indicators_config.get(self.indicator_strategy, {})
-                
+                # Проверяем новый формат с независимым выбором индикаторов
+                if 'selected_indicators' in indicators_config:
+                    # Новый формат - кастомный выбор индикаторов
+                    self.indicator_strategy = 'custom'
+                    self.indicator_config = indicators_config
+                else:
+                    # Старый формат - предустановленные стратегии
+                    self.indicator_strategy = indicators_config.get('strategy_type', 'trend_momentum')
+                    self.indicator_config = indicators_config.get(self.indicator_strategy, {})
+
                 # Инициализируем индикаторы
                 self.indicators = TechnicalIndicators()
                 self.indicator_strategy_handler = IndicatorStrategy(self.indicators)
-                
+
                 if self.verbose:
                     print(f"Индикаторы включены: {self.indicator_strategy}")
                     print(f"Конфигурация: {self.indicator_config}")
@@ -202,47 +209,59 @@ class TradingStrategy:
     def _indicator_based_entry_logic(self, current_data: pd.Series, historical_data: pd.DataFrame) -> bool:
         """
         Логика входа на основе технических индикаторов
-        
+
         Args:
             current_data: текущие данные
             historical_data: исторические данные
-            
+
         Returns:
             True если следует входить в позицию
         """
         try:
-            if self.indicator_strategy == 'trend_momentum':
-                signal_data = self.indicator_strategy_handler.trend_momentum_signal(
+            # Новый формат - кастомный выбор индикаторов
+            if self.indicator_strategy == 'custom':
+                signal_data = self.indicator_strategy_handler.custom_signal(
                     historical_data, self.indicator_config
                 )
-                
+
                 if self.order_type == OrderType.LONG:
                     return signal_data['long_signal']
                 else:
                     return signal_data['short_signal']
-                    
+
+            # Старые предустановленные стратегии
+            elif self.indicator_strategy == 'trend_momentum':
+                signal_data = self.indicator_strategy_handler.trend_momentum_signal(
+                    historical_data, self.indicator_config
+                )
+
+                if self.order_type == OrderType.LONG:
+                    return signal_data['long_signal']
+                else:
+                    return signal_data['short_signal']
+
             elif self.indicator_strategy == 'volatility_bounce':
                 signal_data = self.indicator_strategy_handler.volatility_bounce_signal(
                     historical_data, self.indicator_config
                 )
-                
+
                 if self.order_type == OrderType.LONG:
                     return signal_data['long_signal']
                 else:
                     return signal_data['short_signal']
-                    
+
             elif self.indicator_strategy == 'momentum_trend':
                 signal_data = self.indicator_strategy_handler.momentum_trend_signal(
                     historical_data, self.indicator_config
                 )
-                
+
                 if self.order_type == OrderType.LONG:
                     return signal_data['long_signal']
                 else:
                     return signal_data['short_signal']
-            
+
             return False
-            
+
         except Exception as e:
             if self.verbose:
                 print(f"Ошибка в индикаторной логике: {e}")
