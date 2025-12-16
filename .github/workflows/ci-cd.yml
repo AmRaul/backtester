@@ -190,12 +190,13 @@ jobs:
             EOF
 
             # Логин в GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || true
 
             # Обновляем и запускаем основное приложение
             echo "Deploying backtester..."
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d
+            export GITHUB_REPOSITORY=${{ github.repository }}
+            docker compose -f docker-compose.prod.yml pull backtester-web
+            docker compose -f docker-compose.prod.yml up -d --force-recreate backtester-web
 
             # Устанавливаем Nginx конфигурацию (только если ещё не установлена)
             if [ ! -f /etc/nginx/sites-enabled/backtester.conf ]; then
