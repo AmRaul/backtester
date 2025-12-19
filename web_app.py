@@ -12,14 +12,26 @@ from datetime import datetime
 from pathlib import Path
 import base64
 import io
-import sqlite3
-from contextlib import contextmanager
 import pandas as pd
 
 from backtester import Backtester
 from reporter import BacktestReporter
 from data_loader import DataLoader
 from visualizer import BacktestVisualizer
+
+# PostgreSQL database layer
+from database import (
+    get_db_session,
+    StrategyConfig,
+    BacktestHistory,
+    save_strategy_config,
+    save_backtest_result,
+    get_backtest_by_task_id,
+    get_recent_backtests,
+    get_all_strategy_configs,
+    check_db_health,
+    init_database
+)
 
 app = Flask(__name__)
 app.secret_key = 'backtester_secret_key_change_in_production'
@@ -28,130 +40,24 @@ app.secret_key = 'backtester_secret_key_change_in_production'
 running_backtests = {}
 backtest_results = {}
 
-# Инициализация базы данных
-def init_database():
-    """Инициализирует базу данных SQLite"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        
-        # Таблица для сохранения конфигураций стратегий
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS strategy_configs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                description TEXT,
-                config_json TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                is_public BOOLEAN DEFAULT 0,
-                author TEXT DEFAULT 'user',
-                tags TEXT,
-                performance_score REAL DEFAULT 0.0
-            )
-        ''')
-        
-        # Таблица для истории бэктестов
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS backtest_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id TEXT UNIQUE NOT NULL,
-                symbol TEXT,
-                timeframe TEXT,
-                config_name TEXT,
-                config_json TEXT NOT NULL,
-                results_json TEXT,
-                status TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at TIMESTAMP,
-                total_trades INTEGER DEFAULT 0,
-                win_rate REAL DEFAULT 0.0,
-                total_return REAL DEFAULT 0.0,
-                max_drawdown REAL DEFAULT 0.0,
-                sharpe_ratio REAL DEFAULT 0.0,
-                order_type TEXT,
-                start_date TEXT,
-                end_date TEXT
-            )
-        ''')
+# ============================================================================
+# PostgreSQL database is now used via database.py
+# SQLite code below is kept for reference but commented out
+# ============================================================================
 
-        # Миграция: добавляем новые колонки если их нет
-        try:
-            cursor.execute("PRAGMA table_info(backtest_history)")
-            columns = [row[1] for row in cursor.fetchall()]
+# # OLD SQLite CODE - COMMENTED OUT
+# # Инициализация базы данных
+# def init_database():
+#     """Инициализирует базу данных SQLite"""
+#     ...
+#
+# @contextmanager
+# def get_db_connection():
+#     """Контекстный менеджер для работы с базой данных"""
+#     ...
 
-            if 'order_type' not in columns:
-                cursor.execute('ALTER TABLE backtest_history ADD COLUMN order_type TEXT DEFAULT "long"')
-                print("[DB] Добавлена колонка order_type")
-
-            if 'start_date' not in columns:
-                cursor.execute('ALTER TABLE backtest_history ADD COLUMN start_date TEXT')
-                print("[DB] Добавлена колонка start_date")
-
-            if 'end_date' not in columns:
-                cursor.execute('ALTER TABLE backtest_history ADD COLUMN end_date TEXT')
-                print("[DB] Добавлена колонка end_date")
-
-            # Заполняем данные из config_json для существующих записей
-            cursor.execute('''
-                SELECT id, task_id, config_json, order_type, start_date, end_date
-                FROM backtest_history
-            ''')
-            rows = cursor.fetchall()
-
-            updated_count = 0
-            for row in rows:
-                record_id = row[0]
-                task_id = row[1]
-                config_json_str = row[2]
-                current_order_type = row[3]
-                current_start_date = row[4]
-                current_end_date = row[5]
-
-                # Если данные уже заполнены, пропускаем
-                if current_order_type and current_start_date and current_end_date:
-                    continue
-
-                try:
-                    config = json.loads(config_json_str)
-                    order_type = config.get('order_type', 'long')
-                    start_date = config.get('start_date')
-                    end_date = config.get('end_date')
-
-                    cursor.execute('''
-                        UPDATE backtest_history
-                        SET order_type = ?, start_date = ?, end_date = ?
-                        WHERE id = ?
-                    ''', (order_type, start_date, end_date, record_id))
-                    updated_count += 1
-                except Exception as e:
-                    print(f"[DB] Ошибка обновления записи {task_id}: {e}")
-
-            if updated_count > 0:
-                print(f"[DB] Обновлено {updated_count} записей с данными из config")
-
-        except Exception as e:
-            print(f"[DB] Ошибка миграции: {e}")
-
-        conn.commit()
-
-@contextmanager
-def get_db_connection():
-    """Контекстный менеджер для работы с базой данных"""
-    import os
-    db_dir = 'db'
-    db_path = os.path.join(db_dir, 'backtester.db')
-
-    # Создаем директорию если её нет
-    os.makedirs(db_dir, exist_ok=True)
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row  # Для доступа к колонкам по имени
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-# Инициализируем базу данных при импорте модуля
+# Инициализируем PostgreSQL базу данных при импорте модуля
+print("[DATABASE] Initializing PostgreSQL connection...")
 init_database()
 
 class BacktestTask:
@@ -198,64 +104,26 @@ def run_backtest_async(task_id, config):
         print(f"Ошибка в бэктесте {task_id}: {e}")
 
 def save_backtest_to_db(task_id, config, results):
-    """Сохраняет результаты бэктеста в базу данных"""
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
+    """Сохраняет результаты бэктеста в базу данных (PostgreSQL)"""
+    try:
+        # Prepare results for JSON serialization
+        results_prepared = prepare_results_for_json(results) if results else None
 
-        # Подготавливаем данные для сохранения
-        config_json = json.dumps(config)
-        results_json = json.dumps(prepare_results_for_json(results))
+        # Use helper function from database.py
+        save_backtest_result(task_id, config, results_prepared, status='completed')
 
-        # Извлекаем основные метрики
-        symbol = config.get('symbol', 'Unknown')
-        timeframe = config.get('timeframe', 'Unknown')
-        total_return = results.get('basic_stats', {}).get('total_return', 0)
-        total_trades = results.get('basic_stats', {}).get('total_trades', 0)
-        win_rate = results.get('basic_stats', {}).get('win_rate', 0)
-        order_type = config.get('order_type', 'long')
-        start_date = config.get('start_date')
-        end_date = config.get('end_date')
-
-        cursor.execute('''
-            INSERT INTO backtest_history
-            (task_id, config_name, config_json, results_json, status,
-             symbol, timeframe, total_return, total_trades, win_rate, order_type, start_date, end_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            task_id,
-            f"{symbol}_{timeframe}",
-            config_json,
-            results_json,
-            'completed',
-            symbol,
-            timeframe,
-            total_return,
-            total_trades,
-            win_rate,
-            order_type,
-            start_date,
-            end_date
-        ))
-
-        conn.commit()
+        print(f"[DB] Backtest saved: {task_id}")
+    except Exception as e:
+        print(f"[DB ERROR] Failed to save backtest: {e}")
+        raise
 
 def load_backtest_from_db(task_id):
-    """Загружает результаты бэктеста из базы данных"""
+    """Загружает результаты бэктеста из базы данных (PostgreSQL)"""
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT results_json FROM backtest_history
-                WHERE task_id = ?
-                ORDER BY created_at DESC
-                LIMIT 1
-            ''', (task_id,))
-
-            row = cursor.fetchone()
-            if row:
-                results_json = row['results_json']
-                return json.loads(results_json)
-            return None
+        backtest_dict = get_backtest_by_task_id(task_id)
+        if backtest_dict and backtest_dict.get('results_json'):
+            return backtest_dict['results_json']
+        return None
     except Exception as e:
         print(f"[DB ERROR] Ошибка загрузки из БД: {e}")
         return None
@@ -272,14 +140,20 @@ def config_page():
     examples = {}
 
     # CSV примеры
-    if os.path.exists('config_examples.json'):
-        with open('config_examples.json', 'r', encoding='utf-8') as f:
-            examples['csv'] = json.load(f)
+    if os.path.isfile('config_examples.json'):
+        try:
+            with open('config_examples.json', 'r', encoding='utf-8') as f:
+                examples['csv'] = json.load(f)
+        except Exception as e:
+            print(f"Ошибка загрузки config_examples.json: {e}")
 
     # API примеры
-    if os.path.exists('config_api_examples.json'):
-        with open('config_api_examples.json', 'r', encoding='utf-8') as f:
-            examples['api'] = json.load(f)
+    if os.path.isfile('config_api_examples.json'):
+        try:
+            with open('config_api_examples.json', 'r', encoding='utf-8') as f:
+                examples['api'] = json.load(f)
+        except Exception as e:
+            print(f"Ошибка загрузки config_api_examples.json: {e}")
 
     # Получаем список доступных бирж
     try:
@@ -597,40 +471,21 @@ def results_page():
 
     # Добавляем завершенные задачи из БД
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT task_id, symbol, timeframe, created_at, total_return, total_trades,
-                       order_type, start_date, end_date
-                FROM backtest_history
-                ORDER BY created_at DESC
-                LIMIT 50
-            ''')
-            for row in cursor.fetchall():
-                # Проверяем, не добавили ли мы уже эту задачу из running_backtests
-                if not any(t['task_id'] == row['task_id'] for t in all_tasks):
-                    # Конвертируем строку даты в datetime объект или оставляем как строку
-                    from datetime import datetime
-                    start_time = row['created_at']
-                    try:
-                        if start_time and isinstance(start_time, str):
-                            # Пытаемся распарсить как ISO формат
-                            start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                    except (ValueError, AttributeError):
-                        # Если не получилось, оставляем как строку
-                        pass
-
-                    all_tasks.append({
-                        'task_id': row['task_id'],
-                        'status': 'completed',
-                        'start_time': start_time,
-                        'config_symbol': row['symbol'],
-                        'total_return': row['total_return'],
-                        'total_trades': row['total_trades'],
-                        'order_type': row['order_type'],
-                        'start_date': row['start_date'],
-                        'end_date': row['end_date']
-                    })
+        recent_backtests = get_recent_backtests(limit=50)
+        for backtest in recent_backtests:
+            # Проверяем, не добавили ли мы уже эту задачу из running_backtests
+            if not any(t['task_id'] == backtest['task_id'] for t in all_tasks):
+                all_tasks.append({
+                    'task_id': backtest['task_id'],
+                    'status': 'completed',
+                    'start_time': backtest['created_at'],
+                    'config_symbol': backtest['symbol'],
+                    'total_return': backtest['total_return'],
+                    'total_trades': backtest['total_trades'],
+                    'order_type': backtest['order_type'],
+                    'start_date': backtest['start_date'],
+                    'end_date': backtest['end_date']
+                })
     except Exception as e:
         print(f"[RESULTS PAGE] Ошибка загрузки из БД: {e}")
 
@@ -678,31 +533,27 @@ def load_example_configs():
             examples = json.load(f)
 
         loaded_count = 0
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-
+        with get_db_session() as session:
             for name, config in examples.items():
                 try:
                     # Проверяем существует ли уже
-                    cursor.execute('SELECT id FROM strategy_configs WHERE name = ?', (name,))
-                    if cursor.fetchone():
+                    existing = session.query(StrategyConfig).filter_by(name=name).first()
+                    if existing:
                         continue  # Пропускаем если уже есть
 
                     # Добавляем конфигурацию
-                    cursor.execute('''
-                        INSERT INTO strategy_configs (name, description, config_json, is_public, author)
-                        VALUES (?, ?, ?, 1, 'system')
-                    ''', (
-                        name,
-                        f"Пример стратегии: {config.get('order_type', 'unknown')} на {config.get('symbol', 'unknown')}",
-                        json.dumps(config, ensure_ascii=False)
-                    ))
+                    new_config = StrategyConfig(
+                        name=name,
+                        description=f"Пример стратегии: {config.get('order_type', 'unknown')} на {config.get('symbol', 'unknown')}",
+                        config_json=config,
+                        is_public=True,
+                        author='system'
+                    )
+                    session.add(new_config)
                     loaded_count += 1
                 except Exception as e:
                     print(f"Ошибка загрузки примера {name}: {e}")
                     continue
-
-            conn.commit()
 
         return jsonify({
             'success': True,
@@ -843,16 +694,8 @@ def get_report_image(task_id, filename):
 def get_configs():
     """Получить список сохраненных конфигураций"""
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT id, name, description, created_at, updated_at, 
-                       is_public, author, tags, performance_score
-                FROM strategy_configs 
-                ORDER BY updated_at DESC
-            ''')
-            configs = [dict(row) for row in cursor.fetchall()]
-            return jsonify(configs)
+        configs = get_all_strategy_configs()
+        return jsonify(configs)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -860,15 +703,13 @@ def get_configs():
 def get_config(config_id):
     """Получить конкретную конфигурацию"""
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM strategy_configs WHERE id = ?', (config_id,))
-            config = cursor.fetchone()
-            
+        with get_db_session() as session:
+            config = session.query(StrategyConfig).filter_by(id=config_id).first()
+
             if not config:
                 return jsonify({'error': 'Конфигурация не найдена'}), 404
-            
-            return jsonify(dict(config))
+
+            return jsonify(config.to_dict())
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -879,30 +720,36 @@ def save_config():
         data = request.json
         name = data.get('name')
         description = data.get('description', '')
-        config_json = json.dumps(data.get('config'))
+        config = data.get('config')
         is_public = data.get('is_public', False)
         author = data.get('author', 'user')
-        tags = data.get('tags', '')
-        
+        tags = data.get('tags', [])
+
         if not name:
             return jsonify({'error': 'Название конфигурации обязательно'}), 400
-        
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO strategy_configs 
-                (name, description, config_json, is_public, author, tags)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (name, description, config_json, is_public, author, tags))
-            conn.commit()
-            
+
+        with get_db_session() as session:
+            # Check if name already exists
+            existing = session.query(StrategyConfig).filter_by(name=name).first()
+            if existing:
+                return jsonify({'error': 'Конфигурация с таким именем уже существует'}), 400
+
+            new_config = StrategyConfig(
+                name=name,
+                description=description,
+                config_json=config,
+                is_public=is_public,
+                author=author,
+                tags=tags if isinstance(tags, list) else []
+            )
+            session.add(new_config)
+            session.flush()  # To get the ID
+
             return jsonify({
                 'success': True,
                 'message': f'Конфигурация "{name}" сохранена',
-                'id': cursor.lastrowid
+                'id': new_config.id
             })
-    except sqlite3.IntegrityError:
-        return jsonify({'error': 'Конфигурация с таким именем уже существует'}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -913,23 +760,23 @@ def update_config(config_id):
         data = request.json
         name = data.get('name')
         description = data.get('description', '')
-        config_json = json.dumps(data.get('config'))
+        config = data.get('config')
         is_public = data.get('is_public', False)
-        tags = data.get('tags', '')
-        
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE strategy_configs 
-                SET name = ?, description = ?, config_json = ?, 
-                    is_public = ?, tags = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (name, description, config_json, is_public, tags, config_id))
-            
-            if cursor.rowcount == 0:
+        tags = data.get('tags', [])
+
+        with get_db_session() as session:
+            existing_config = session.query(StrategyConfig).filter_by(id=config_id).first()
+
+            if not existing_config:
                 return jsonify({'error': 'Конфигурация не найдена'}), 404
-            
-            conn.commit()
+
+            existing_config.name = name
+            existing_config.description = description
+            existing_config.config_json = config
+            existing_config.is_public = is_public
+            existing_config.tags = tags if isinstance(tags, list) else []
+            existing_config.updated_at = datetime.utcnow()
+
             return jsonify({'success': True, 'message': 'Конфигурация обновлена'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -938,14 +785,13 @@ def update_config(config_id):
 def delete_config(config_id):
     """Удалить конфигурацию"""
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM strategy_configs WHERE id = ?', (config_id,))
-            
-            if cursor.rowcount == 0:
+        with get_db_session() as session:
+            config = session.query(StrategyConfig).filter_by(id=config_id).first()
+
+            if not config:
                 return jsonify({'error': 'Конфигурация не найдена'}), 404
-            
-            conn.commit()
+
+            session.delete(config)
             return jsonify({'success': True, 'message': 'Конфигурация удалена'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -954,28 +800,29 @@ def delete_config(config_id):
 def duplicate_config(config_id):
     """Дублировать конфигурацию"""
     try:
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM strategy_configs WHERE id = ?', (config_id,))
-            original = cursor.fetchone()
-            
+        with get_db_session() as session:
+            original = session.query(StrategyConfig).filter_by(id=config_id).first()
+
             if not original:
                 return jsonify({'error': 'Конфигурация не найдена'}), 404
-            
+
             # Создаем копию с новым именем
-            new_name = f"{original['name']} (копия)"
-            cursor.execute('''
-                INSERT INTO strategy_configs 
-                (name, description, config_json, is_public, author, tags)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (new_name, original['description'], original['config_json'], 
-                  False, original['author'], original['tags']))
-            
-            conn.commit()
+            new_name = f"{original.name} (копия)"
+            new_config = StrategyConfig(
+                name=new_name,
+                description=original.description,
+                config_json=original.config_json,
+                is_public=False,
+                author=original.author,
+                tags=original.tags
+            )
+            session.add(new_config)
+            session.flush()  # To get the ID
+
             return jsonify({
                 'success': True,
                 'message': f'Конфигурация скопирована как "{new_name}"',
-                'id': cursor.lastrowid
+                'id': new_config.id
             })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1049,11 +896,12 @@ def delete_backtest(task_id):
             del backtest_results[task_id]
 
         # Удаляем из базы данных
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM backtest_history WHERE task_id = ?', (task_id,))
-            deleted_count = cursor.rowcount
-            conn.commit()
+        deleted_count = 0
+        with get_db_session() as session:
+            backtest = session.query(BacktestHistory).filter_by(task_id=task_id).first()
+            if backtest:
+                session.delete(backtest)
+                deleted_count = 1
 
         # Удаляем директорию с отчетами
         report_dir = f"reports/report_{task_id}"
@@ -1080,15 +928,15 @@ def clear_all_backtests():
         import shutil
 
         # Получаем список всех task_id из базы
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT task_id FROM backtest_history WHERE status = "completed"')
-            task_ids = [row['task_id'] for row in cursor.fetchall()]
+        with get_db_session() as session:
+            backtests = session.query(BacktestHistory).filter_by(status='completed').all()
+            task_ids = [b.task_id for b in backtests]
 
             # Удаляем все записи
-            cursor.execute('DELETE FROM backtest_history WHERE status = "completed"')
-            deleted_count = cursor.rowcount
-            conn.commit()
+            for backtest in backtests:
+                session.delete(backtest)
+
+            deleted_count = len(backtests)
 
         # Очищаем память
         for task_id in task_ids:

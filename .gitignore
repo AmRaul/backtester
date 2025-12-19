@@ -141,7 +141,17 @@ reports/*
 !reports/.gitkeep
 *.log
 .env
+.env.local
 config.json
+
+# PostgreSQL data
+postgres_data/
+*.dump
+*.sql.gz
+
+# Market analytics cache
+market-analytics/.cache/
+market-analytics/__pycache__/
 
 # Traefik
 traefik/letsencrypt/
@@ -152,6 +162,7 @@ traefik/acme.json
 .vscode/
 .DS_Store
 .claude/
+CLAUDE.md
 
 # Debug files
 debug_calculations.py 
