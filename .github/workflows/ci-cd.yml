@@ -190,13 +190,41 @@ jobs:
             EOF
 
             # Логин в GitHub Container Registry
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || true
+            echo "🔐 Logging in to GitHub Container Registry..."
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            if [ $? -ne 0 ]; then
+              echo "❌ Failed to login to ghcr.io"
+              exit 1
+            fi
+            echo "✅ Successfully logged in to ghcr.io"
+
+            # Показываем текущую версию образа
+            echo "📦 Current image version:"
+            docker images ghcr.io/${{ github.repository }}-web:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}" || echo "No local image found"
 
             # Обновляем и запускаем основное приложение
-            echo "Deploying backtester..."
+            echo "🚀 Deploying backtester..."
             export GITHUB_REPOSITORY=${{ github.repository }}
+
+            echo "⬇️  Pulling latest image..."
             docker compose -f docker-compose.prod.yml pull backtester-web
+
+            if [ $? -ne 0 ]; then
+              echo "❌ Failed to pull image"
+              exit 1
+            fi
+
+            echo "📦 New image version:"
+            docker images ghcr.io/${{ github.repository }}-web:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"
+
+            echo "🔄 Recreating container..."
             docker compose -f docker-compose.prod.yml up -d --force-recreate backtester-web
+
+            if [ $? -ne 0 ]; then
+              echo "❌ Failed to start container"
+              exit 1
+            fi
 
             # Устанавливаем Nginx конфигурацию (только если ещё не установлена)
             if [ ! -f /etc/nginx/sites-enabled/backtester.conf ]; then
@@ -220,11 +248,30 @@ jobs:
             fi
 
             # Очищаем неиспользуемые образы
+            echo "🧹 Cleaning up unused images..."
             docker system prune -f
 
             # Проверяем статус сервисов
-            echo "Checking services status..."
+            echo "📊 Checking services status..."
             docker compose -f docker-compose.prod.yml ps
 
-            echo "✅ Deployment completed!"
-            echo "🌐 Your application is available at: https://${{ secrets.DOMAIN }}"
+            # Ждём немного для запуска healthcheck
+            echo "⏳ Waiting for healthcheck..."
+            sleep 10
+
+            # Проверяем здоровье контейнера
+            CONTAINER_STATUS=$(docker inspect --format='{{.State.Health.Status}}' backtester_web_prod 2>/dev/null || echo "no-healthcheck")
+            echo "🏥 Container health status: $CONTAINER_STATUS"
+
+            # Показываем последние логи
+            echo "📝 Last 20 lines of container logs:"
+            docker compose -f docker-compose.prod.yml logs --tail=20 backtester-web
+
+            # Финальная проверка
+            if docker compose -f docker-compose.prod.yml ps | grep -q "backtester_web_prod.*Up"; then
+              echo "✅ Deployment completed successfully!"
+              echo "🌐 Your application is available at: https://${{ secrets.DOMAIN }}"
+            else
+              echo "⚠️  Deployment completed but container may not be running properly"
+              exit 1
+            fi
