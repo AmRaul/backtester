@@ -179,10 +179,14 @@ jobs:
           script: |
             cd /opt/backtester
 
+            # Приводим имя репозитория к lowercase для Docker
+            REPO_LOWERCASE=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+            echo "📦 Repository: $REPO_LOWERCASE"
+
             # Создаём .env файл из GitHub Secrets
             echo "Creating .env file..."
             cat > .env << EOF
-            GITHUB_REPOSITORY=${{ github.repository }}
+            GITHUB_REPOSITORY=$REPO_LOWERCASE
             DOMAIN=${{ secrets.DOMAIN }}
             LETSENCRYPT_EMAIL=${{ secrets.LETSENCRYPT_EMAIL }}
             WEB_PORT=${{ secrets.WEB_PORT }}
@@ -201,11 +205,11 @@ jobs:
 
             # Показываем текущую версию образа
             echo "📦 Current image version:"
-            docker images ghcr.io/${{ github.repository }}-web:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}" || echo "No local image found"
+            docker images ghcr.io/${REPO_LOWERCASE}-web:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}" || echo "No local image found"
 
             # Обновляем и запускаем основное приложение
             echo "🚀 Deploying backtester..."
-            export GITHUB_REPOSITORY=${{ github.repository }}
+            export GITHUB_REPOSITORY=$REPO_LOWERCASE
 
             echo "⬇️  Pulling latest image..."
             docker compose -f docker-compose.prod.yml pull backtester-web
@@ -216,7 +220,7 @@ jobs:
             fi
 
             echo "📦 New image version:"
-            docker images ghcr.io/${{ github.repository }}-web:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"
+            docker images ghcr.io/${REPO_LOWERCASE}-web:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"
 
             echo "🔄 Recreating container..."
             docker compose -f docker-compose.prod.yml up -d --force-recreate backtester-web
