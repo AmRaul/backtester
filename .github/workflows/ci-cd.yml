@@ -83,8 +83,16 @@ jobs:
         include:
           - dockerfile: Dockerfile
             image-suffix: ''
+            context: .
           - dockerfile: Dockerfile.web
             image-suffix: '-web'
+            context: .
+          - dockerfile: Dockerfile
+            image-suffix: '-analytics'
+            context: ./market-analytics
+          - dockerfile: bot/Dockerfile
+            image-suffix: '-bot'
+            context: ./market-analytics
 
     steps:
       - name: Checkout code
@@ -116,8 +124,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ${{ matrix.dockerfile }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -191,6 +199,9 @@ jobs:
             LETSENCRYPT_EMAIL=${{ secrets.LETSENCRYPT_EMAIL }}
             WEB_PORT=${{ secrets.WEB_PORT }}
             REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
             EOF
 
             # Логин в GitHub Container Registry
@@ -211,22 +222,24 @@ jobs:
             echo "🚀 Deploying backtester..."
             export GITHUB_REPOSITORY=$REPO_LOWERCASE
 
-            echo "⬇️  Pulling latest image..."
-            docker compose -f docker-compose.prod.yml pull backtester-web
+            echo "⬇️  Pulling latest images..."
+            docker compose -f docker-compose.prod.yml pull
 
             if [ $? -ne 0 ]; then
-              echo "❌ Failed to pull image"
+              echo "❌ Failed to pull images"
               exit 1
             fi
 
-            echo "📦 New image version:"
+            echo "📦 New image versions:"
             docker images ghcr.io/${REPO_LOWERCASE}-web:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"
+            docker images ghcr.io/${REPO_LOWERCASE}-analytics:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"
+            docker images ghcr.io/${REPO_LOWERCASE}-bot:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"
 
-            echo "🔄 Recreating container..."
-            docker compose -f docker-compose.prod.yml up -d --force-recreate backtester-web
+            echo "🔄 Recreating all containers..."
+            docker compose -f docker-compose.prod.yml up -d --force-recreate
 
             if [ $? -ne 0 ]; then
-              echo "❌ Failed to start container"
+              echo "❌ Failed to start containers"
               exit 1
             fi
 
@@ -263,19 +276,29 @@ jobs:
             echo "⏳ Waiting for healthcheck..."
             sleep 10
 
-            # Проверяем здоровье контейнера
-            CONTAINER_STATUS=$(docker inspect --format='{{.State.Health.Status}}' backtester_web_prod 2>/dev/null || echo "no-healthcheck")
-            echo "🏥 Container health status: $CONTAINER_STATUS"
+            # Проверяем здоровье контейнеров
+            echo "🏥 Container health status:"
+            docker inspect --format='{{.Name}}: {{.State.Health.Status}}' backtester_web_prod 2>/dev/null || echo "backtester_web_prod: no-healthcheck"
+            docker inspect --format='{{.Name}}: {{.State.Health.Status}}' market_analytics_prod 2>/dev/null || echo "market_analytics_prod: no-healthcheck"
+            docker inspect --format='{{.Name}}: {{.State.Status}}' backtester_telegram_bot_prod 2>/dev/null || echo "backtester_telegram_bot_prod: unknown"
 
-            # Показываем последние логи
-            echo "📝 Last 20 lines of container logs:"
-            docker compose -f docker-compose.prod.yml logs --tail=20 backtester-web
+            # Показываем последние логи всех сервисов
+            echo "📝 Last 10 lines of each service logs:"
+            echo "--- Backtester Web ---"
+            docker compose -f docker-compose.prod.yml logs --tail=10 backtester-web
+            echo "--- Market Analytics ---"
+            docker compose -f docker-compose.prod.yml logs --tail=10 market-analytics
+            echo "--- Telegram Bot ---"
+            docker compose -f docker-compose.prod.yml logs --tail=10 telegram-bot
 
             # Финальная проверка
-            if docker compose -f docker-compose.prod.yml ps | grep -q "backtester_web_prod.*Up"; then
+            RUNNING_COUNT=$(docker compose -f docker-compose.prod.yml ps | grep "Up" | wc -l)
+            echo "📊 Running containers: $RUNNING_COUNT"
+
+            if [ $RUNNING_COUNT -ge 3 ]; then
               echo "✅ Deployment completed successfully!"
               echo "🌐 Your application is available at: https://${{ secrets.DOMAIN }}"
             else
-              echo "⚠️  Deployment completed but container may not be running properly"
+              echo "⚠️  Deployment completed but some containers may not be running properly"
               exit 1
             fi
