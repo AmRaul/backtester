@@ -403,9 +403,15 @@ async def cmd_subscribe(message: Message):
     """Handle /subscribe command - save user to database"""
     try:
         import psycopg2
-        DATABASE_URL = os.getenv('DATABASE_URL')
 
-        conn = psycopg2.connect(DATABASE_URL)
+        # Connect using separate parameters (safer than DATABASE_URL)
+        conn = psycopg2.connect(
+            host=os.getenv('DB_HOST', 'postgres'),
+            port=os.getenv('DB_PORT', '5432'),
+            database=os.getenv('DB_NAME', 'backtester'),
+            user=os.getenv('DB_USER', 'backtester'),
+            password=os.getenv('DB_PASSWORD', 'changeme')
+        )
         cursor = conn.cursor()
 
         # Insert or update subscriber
@@ -453,9 +459,15 @@ async def cmd_unsubscribe(message: Message):
     """Handle /unsubscribe command - deactivate subscription"""
     try:
         import psycopg2
-        DATABASE_URL = os.getenv('DATABASE_URL')
 
-        conn = psycopg2.connect(DATABASE_URL)
+        # Connect using separate parameters (safer than DATABASE_URL)
+        conn = psycopg2.connect(
+            host=os.getenv('DB_HOST', 'postgres'),
+            port=os.getenv('DB_PORT', '5432'),
+            database=os.getenv('DB_NAME', 'backtester'),
+            user=os.getenv('DB_USER', 'backtester'),
+            password=os.getenv('DB_PASSWORD', 'changeme')
+        )
         cursor = conn.cursor()
 
         # Deactivate subscription
