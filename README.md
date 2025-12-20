@@ -21,7 +21,7 @@
 ```bash
 git clone <repository-url>
 cd backtester
-```
+``` 
 
 
 2. **Запустите веб-интерфейс:**
