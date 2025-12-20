@@ -78,6 +78,61 @@ def get_trend_emoji(value: float) -> str:
         return "➡️"
 
 
+def init_database():
+    """Initialize database schema and tables if they don't exist"""
+    try:
+        import psycopg2
+
+        logger.info("Initializing database...")
+
+        conn = psycopg2.connect(
+            host=os.getenv('DB_HOST', 'postgres'),
+            port=os.getenv('DB_PORT', '5432'),
+            database=os.getenv('DB_NAME', 'backtester'),
+            user=os.getenv('DB_USER', 'backtester'),
+            password=os.getenv('DB_PASSWORD', 'changeme')
+        )
+        cursor = conn.cursor()
+
+        # Create market_data schema if not exists
+        cursor.execute("CREATE SCHEMA IF NOT EXISTS market_data;")
+
+        # Create bot_subscribers table if not exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS market_data.bot_subscribers (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT UNIQUE NOT NULL,
+                username VARCHAR(100),
+                first_name VARCHAR(100),
+                subscribed_at TIMESTAMPTZ DEFAULT NOW(),
+                active BOOLEAN DEFAULT TRUE,
+                timezone VARCHAR(50) DEFAULT 'UTC',
+                notifications_enabled BOOLEAN DEFAULT TRUE,
+                last_notification_at TIMESTAMPTZ
+            );
+        """)
+
+        # Create indexes if not exist
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_subscribers_user_id
+            ON market_data.bot_subscribers(user_id);
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_subscribers_active
+            ON market_data.bot_subscribers(active) WHERE active = TRUE;
+        """)
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        logger.info("✓ Database initialized successfully")
+
+    except Exception as e:
+        logger.error(f"✗ Failed to initialize database: {e}")
+        logger.warning("Bot will continue, but subscription features may not work")
+
+
 # ============================================================================
 # Command Handlers
 # ============================================================================
@@ -558,6 +613,9 @@ async def main():
     except Exception as e:
         logger.warning(f"⚠ Could not connect to API: {e}")
         logger.info("Bot will start anyway, but API calls may fail")
+
+    # Initialize database
+    init_database()
 
     # Setup scheduler for notifications
     try:
