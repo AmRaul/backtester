@@ -240,3 +240,63 @@ def setup_scheduler(bot):
     logger.info("  - Noon summary: 12:00 UTC")
 
     return scheduler
+
+
+# ============================================================================
+# Optimization Notifications
+# ============================================================================
+
+async def send_optimization_notification_async(bot, user_id: str, message: str):
+    """
+    Send optimization notification to specific user (async version)
+
+    Args:
+        bot: Telegram bot instance
+        user_id: Telegram user ID
+        message: Notification message
+    """
+    try:
+        await bot.send_message(
+            chat_id=int(user_id),
+            text=message,
+            parse_mode='HTML'
+        )
+        logger.info(f"✓ Sent optimization notification to {user_id}")
+        return True
+    except Exception as e:
+        logger.error(f"✗ Failed to send optimization notification to {user_id}: {e}")
+        return False
+
+
+def send_optimization_notification(user_id: str, message: str):
+    """
+    Send optimization notification (sync wrapper for use in optimizer.py)
+
+    Args:
+        user_id: Telegram user ID
+        message: Notification message
+    """
+    try:
+        import telegram
+        import os
+
+        BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+        if not BOT_TOKEN:
+            logger.warning("TELEGRAM_BOT_TOKEN not set, skipping notification")
+            return False
+
+        bot = telegram.Bot(token=BOT_TOKEN)
+
+        # Use sync version of send_message
+        bot.send_message(
+            chat_id=int(user_id),
+            text=message,
+            parse_mode='HTML'
+        )
+
+        logger.info(f"✓ Sent optimization notification to {user_id}")
+        return True
+
+    except Exception as e:
+        logger.error(f"✗ Failed to send optimization notification: {e}")
+        return False

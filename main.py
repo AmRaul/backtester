@@ -195,7 +195,33 @@ def main():
         type=str,
         help='Показать информацию о бирже'
     )
-    
+
+    # Optimization arguments
+    parser.add_argument(
+        '--optimize',
+        action='store_true',
+        help='Запустить оптимизацию параметров стратегии'
+    )
+
+    parser.add_argument(
+        '--optimization-config',
+        type=str,
+        help='Путь к конфигу оптимизации (JSON файл)'
+    )
+
+    parser.add_argument(
+        '--user-id',
+        type=str,
+        help='Telegram user ID для уведомлений и авторизации'
+    )
+
+    parser.add_argument(
+        '--n-trials',
+        type=int,
+        default=100,
+        help='Количество trials для оптимизации (по умолчанию: 100)'
+    )
+
     args = parser.parse_args()
     
     # Создание образца данных
@@ -278,9 +304,131 @@ def main():
             
         except Exception as e:
             print(f"❌ Ошибка при загрузке данных: {e}")
-        
+
         return
-    
+
+    # Optimization mode
+    if args.optimize:
+        print("🔬 Запуск оптимизации параметров стратегии...")
+
+        # Check user_id
+        if not args.user_id:
+            print("❌ Ошибка: --user-id обязателен для оптимизации")
+            print("Пример: python main.py --optimize --optimization-config optimization_config.json --user-id YOUR_TELEGRAM_ID")
+            return
+
+        # Load optimization config
+        if not args.optimization_config:
+            print("❌ Ошибка: --optimization-config обязателен для оптимизации")
+            print("Пример: python main.py --optimize --optimization-config optimization_config_example.json --user-id 123456")
+            return
+
+        if not os.path.exists(args.optimization_config):
+            print(f"❌ Ошибка: файл {args.optimization_config} не найден")
+            return
+
+        try:
+            import json
+            with open(args.optimization_config, 'r', encoding='utf-8') as f:
+                opt_config = json.load(f)
+
+            base_config = opt_config.get('base_config')
+            optimization_params = opt_config.get('optimization_params')
+
+            if not base_config or not optimization_params:
+                print("❌ Ошибка: конфиг должен содержать base_config и optimization_params")
+                return
+
+            # Import optimizer
+            from optimizer import OptunaOptimizer
+
+            # Setup notification callback
+            try:
+                import sys
+                sys.path.append('market-analytics/bot')
+                from notifications import send_optimization_notification
+                notification_callback = send_optimization_notification
+                print(f"✅ Уведомления Telegram включены для user_id: {args.user_id}")
+            except Exception as e:
+                print(f"⚠️  Предупреждение: не удалось загрузить модуль уведомлений: {e}")
+                notification_callback = None
+
+            # Create optimizer
+            optimizer = OptunaOptimizer(
+                base_config=base_config,
+                optimization_params=optimization_params,
+                n_trials=args.n_trials,
+                max_parallel_backtests=4,
+                optimization_metric=opt_config.get('optimization_settings', {}).get('optimization_metric', 'custom_score'),
+                notification_callback=notification_callback,
+                user_id=args.user_id
+            )
+
+            print(f"📊 Конфигурация:")
+            print(f"  - Символ: {base_config.get('symbol', 'Unknown')}")
+            print(f"  - Trials: {args.n_trials}")
+            print(f"  - Параметры: {len(optimization_params)}")
+            print(f"  - Метрика: {optimizer.optimization_metric}")
+            print(f"\n⏱️  Примерное время: ~{optimizer._estimate_time()} минут\n")
+
+            # Run optimization
+            results = optimizer.optimize()
+
+            # Display results
+            print("\n" + "=" * 60)
+            print("🏆 РЕЗУЛЬТАТЫ ОПТИМИЗАЦИИ")
+            print("=" * 60)
+            print(f"\nЛучший score: {results['best_score']:.2f}")
+            print(f"\nЛучшие параметры:")
+            for key, value in results['best_params'].items():
+                print(f"  - {key}: {value}")
+
+            if results['best_results']:
+                stats = results['best_results'].get('basic_stats', {})
+                print(f"\nМетрики лучшей конфигурации:")
+                print(f"  - Успешных сделок: {stats.get('winning_trades', 0)}")
+                print(f"  - Win Rate: {stats.get('win_rate', 0):.1f}%")
+                print(f"  - Доходность: {stats.get('total_return', 0):.2f}%")
+                print(f"  - Profit Factor: {results['best_results'].get('advanced_metrics', {}).get('profit_factor', 0):.2f}")
+
+            # Save results
+            from database import save_optimization_result
+            import uuid
+            task_id = str(uuid.uuid4())
+
+            try:
+                save_optimization_result(task_id, {
+                    'status': 'completed',
+                    'n_trials': args.n_trials,
+                    'best_params': results['best_params'],
+                    'best_score': results['best_score'],
+                    'best_config': results['best_config'],
+                    'best_results': results['best_results'],
+                    'all_trials': results['all_trials'],
+                    'duration_minutes': results['duration_minutes'],
+                    'user_id': args.user_id,
+                    'optimization_metric': optimizer.optimization_metric
+                })
+                print(f"\n💾 Результаты сохранены в БД (task_id: {task_id})")
+            except Exception as e:
+                print(f"\n⚠️  Не удалось сохранить в БД: {e}")
+
+            # Export to JSON
+            export_path = f"results/optimization_{task_id[:8]}.json"
+            os.makedirs('results', exist_ok=True)
+            optimizer.export_results(export_path)
+            print(f"💾 Экспорт в JSON: {export_path}")
+
+            print("\n✅ Оптимизация завершена!")
+
+        except Exception as e:
+            print(f"❌ Ошибка при оптимизации: {e}")
+            if args.verbose:
+                import traceback
+                traceback.print_exc()
+
+        return
+
     # Генерация отчета из существующих результатов
     if args.report_only:
         if not os.path.exists(args.report_only):

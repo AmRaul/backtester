@@ -1,0 +1,106 @@
+{
+  "comment": "Example configuration for strategy optimization using Optuna",
+
+  "base_config": {
+    "symbol": "FARTCOIN/USDT",
+    "timeframe": "15m",
+    "start_balance": 10000,
+    "leverage": 1,
+    "order_type": "long",
+    "commission_rate": 0.0004,
+
+    "data_source": {
+      "type": "api",
+      "api": {
+        "exchange": "binance",
+        "symbol": "FART/USDT",
+        "market_type": "spot",
+        "auto_save": false
+      }
+    },
+
+    "entry_conditions": {
+      "trigger_type": "indicator",
+      "rsi_oversold": 30,
+      "rsi_period": 14
+    },
+
+    "first_order": {
+      "type": "percent",
+      "percent_of_balance": 10
+    },
+
+    "dca": {
+      "enabled": true,
+      "max_orders": 5,
+      "step_percent": 2.0,
+      "progression_type": "exponential",
+      "multiplier": 1.5
+    },
+
+    "take_profit": {
+      "enabled": true,
+      "target_percent": 3.0,
+      "trailing": false
+    },
+
+    "stop_loss": {
+      "enabled": false
+    },
+
+    "risk_management": {
+      "max_drawdown_percent": 50,
+      "max_open_positions": 1
+    }
+  },
+
+  "optimization_params": {
+    "comment": "Parameters to optimize - can use lists or ranges",
+
+    "entry_conditions.rsi_oversold": [20, 25, 30, 35, 40],
+
+    "take_profit.target_percent": {
+      "min": 1.0,
+      "max": 5.0,
+      "step": 0.5
+    },
+
+    "dca.max_orders": [3, 5, 7, 10],
+
+    "dca.step_percent": [1.0, 1.5, 2.0, 2.5, 3.0],
+
+    "dca.multiplier": {
+      "min": 1.2,
+      "max": 2.0,
+      "step": 0.2
+    },
+
+    "first_order.percent_of_balance": [5, 10, 15, 20]
+  },
+
+  "optimization_settings": {
+    "n_trials": 100,
+    "max_parallel_backtests": 4,
+    "optimization_metric": "custom_score",
+
+    "comment_metrics": "Available metrics: custom_score, sharpe_ratio, profit_factor, total_return, winning_trades",
+
+    "timeout_minutes": 30,
+
+    "notification_enabled": true,
+    "telegram_user_id": null
+  },
+
+  "walk_forward": {
+    "enabled": false,
+    "train_split": 0.6,
+    "validation_split": 0.2,
+    "test_split": 0.2
+  },
+
+  "export": {
+    "save_top_n": 10,
+    "auto_save_best_config": true,
+    "export_path": "results/optimizations/"
+  }
+}

@@ -173,7 +173,7 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
           key: ${{ secrets.SSH_KEY }}
-          source: "nginx/backtester.conf,docker-compose.prod.yml"
+          source: "nginx/backtester.conf,docker-compose.prod.yml,init-db.sql,migrations/"
           target: "/opt/backtester/"
           strip_components: 0
 
@@ -242,6 +242,53 @@ jobs:
               echo "❌ Failed to start containers"
               exit 1
             fi
+
+            # Ждём пока postgres стартует
+            echo "⏳ Waiting for PostgreSQL to be ready..."
+            sleep 10
+
+            # Создаём pre-deployment бэкап базы данных
+            echo "🔒 Creating pre-deployment backup..."
+            BACKUP_DIR="/opt/backtester/backups"
+            BACKUP_FILE="$BACKUP_DIR/pre_deploy_$(date +%Y%m%d_%H%M%S).sql.gz"
+
+            mkdir -p "$BACKUP_DIR"
+
+            docker exec backtester_postgres_prod pg_dump -U ${{ secrets.DB_USER }} -d backtester --clean --if-exists | gzip > "$BACKUP_FILE"
+
+            if [ $? -eq 0 ]; then
+              BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+              echo "✅ Pre-deployment backup created: $BACKUP_FILE ($BACKUP_SIZE)"
+
+              # Удаляем старые pre-deployment бэкапы (старше 7 дней)
+              find "$BACKUP_DIR" -name "pre_deploy_*.sql.gz" -type f -mtime +7 -delete 2>/dev/null || true
+            else
+              echo "⚠️  Backup failed, but continuing deployment..."
+            fi
+
+            # Применяем все SQL миграции из папки migrations/
+            echo "🗄️  Applying database migrations..."
+            MIGRATION_COUNT=0
+            FAILED_COUNT=0
+
+            for migration_file in /opt/backtester/migrations/*.sql; do
+              if [ -f "$migration_file" ]; then
+                MIGRATION_NAME=$(basename "$migration_file")
+                echo "📄 Applying migration: $MIGRATION_NAME"
+
+                docker exec -i backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester < "$migration_file" 2>&1
+
+                if [ $? -eq 0 ]; then
+                  echo "  ✅ $MIGRATION_NAME applied successfully"
+                  MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
+                else
+                  echo "  ⚠️  $MIGRATION_NAME failed (may be already applied)"
+                  FAILED_COUNT=$((FAILED_COUNT + 1))
+                fi
+              fi
+            done
+
+            echo "📊 Migration summary: $MIGRATION_COUNT successful, $FAILED_COUNT failed/skipped"
 
             # Устанавливаем Nginx конфигурацию (только если ещё не установлена)
             if [ ! -f /etc/nginx/sites-enabled/backtester.conf ]; then

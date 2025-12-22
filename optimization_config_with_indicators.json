@@ -1,0 +1,107 @@
+{
+  "comment": "Optimization config WITH indicators - RSI, EMA crossover strategy",
+
+  "base_config": {
+    "symbol": "FARTCOIN/USDT",
+    "timeframe": "15m",
+    "start_balance": 10000,
+    "leverage": 1,
+    "order_type": "long",
+    "commission_rate": 0.0004,
+
+    "data_source": {
+      "type": "api",
+      "api": {
+        "exchange": "binance",
+        "symbol": "FART/USDT",
+        "market_type": "spot",
+        "auto_save": false
+      }
+    },
+
+    "entry_conditions": {
+      "trigger_type": "indicator"
+    },
+
+    "first_order": {
+      "type": "percent",
+      "percent_of_balance": 10
+    },
+
+    "dca": {
+      "enabled": true,
+      "max_orders": 5,
+      "step_percent": 2.0,
+      "progression_type": "exponential",
+      "multiplier": 1.5
+    },
+
+    "take_profit": {
+      "enabled": true,
+      "target_percent": 3.0,
+      "trailing": false
+    },
+
+    "stop_loss": {
+      "enabled": false
+    },
+
+    "risk_management": {
+      "max_drawdown_percent": 50,
+      "max_open_positions": 1
+    },
+
+    "indicators": {
+      "rsi": {
+        "enabled": true,
+        "period": 14,
+        "oversold": 30,
+        "overbought": 70
+      },
+      "ema": {
+        "enabled": true,
+        "fast_period": 9,
+        "slow_period": 21
+      },
+      "conditions": [
+        {
+          "indicator": "rsi",
+          "operator": "less_than",
+          "value": 30
+        }
+      ]
+    }
+  },
+
+  "optimization_params": {
+    "comment": "Optimize indicator parameters",
+
+    "indicators.rsi.period": [7, 10, 14, 21],
+    "indicators.rsi.oversold": [20, 25, 30, 35, 40],
+    "indicators.ema.fast_period": [5, 7, 9, 12],
+    "indicators.ema.slow_period": [15, 21, 26, 30],
+
+    "take_profit.target_percent": {
+      "min": 1.0,
+      "max": 5.0,
+      "step": 0.5
+    },
+
+    "dca.max_orders": [3, 5, 7, 10],
+    "dca.step_percent": [1.0, 1.5, 2.0, 2.5, 3.0],
+    "dca.multiplier": {
+      "min": 1.2,
+      "max": 2.0,
+      "step": 0.2
+    },
+
+    "first_order.percent_of_balance": [5, 10, 15, 20]
+  },
+
+  "optimization_settings": {
+    "n_trials": 150,
+    "max_parallel_backtests": 4,
+    "optimization_metric": "custom_score",
+    "timeout_minutes": 60
+  }
+}

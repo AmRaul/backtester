@@ -64,6 +64,11 @@ services:
       - ./indicators.py:/app/indicators.py
       - ./reporter.py:/app/reporter.py
       - ./main.py:/app/main.py
+      - ./optimizer.py:/app/optimizer.py
+      - ./optimization_queue.py:/app/optimization_queue.py
+      - ./optimization_config_example.json:/app/optimization_config_example.json
+      - ./optimization_config_with_indicators.json:/app/optimization_config_with_indicators.json
+      - ./optimization_config_no_indicators.json:/app/optimization_config_no_indicators.json
     environment:
       - PYTHONUNBUFFERED=1
       - FLASK_ENV=production

@@ -1,0 +1,179 @@
+<!-- Data Source Selector - Reusable Component -->
+<div class="row">
+    <div class="col-md-6">
+        <h6>Источник данных</h6>
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="radio" name="dataSource" id="dataCsv" value="csv" checked>
+            <label class="form-check-label" for="dataCsv">
+                CSV файл
+            </label>
+        </div>
+        <div class="mb-3" id="csvFileGroup">
+            <label for="csvFile" class="form-label">CSV файл</label>
+            <select class="form-select" id="csvFile">
+                {% if csv_files %}
+                    {% for csv_file in csv_files %}
+                        <option value="{{ csv_file.path }}"
+                                data-range="{{ csv_file.date_range }}"
+                                data-rows="{{ csv_file.rows }}"
+                                data-size="{{ csv_file.size }}">
+                            {% set symbol = csv_file.name.split('_')[0] %}
+                            {% set timeframe = csv_file.name.split('_')[1] if '_' in csv_file.name else '' %}
+                            {{ symbol }} - {{ timeframe }}
+                        </option>
+                    {% endfor %}
+                {% else %}
+                    <option value="">Нет доступных CSV файлов</option>
+                {% endif %}
+            </select>
+            <div class="mt-2 p-2 bg-light rounded" id="csvFileInfo" style="display: none;">
+                <small>
+                    <div><strong>Период:</strong> <span id="csvPeriod">-</span></div>
+                    <div><strong>Свечей:</strong> <span id="csvRows">-</span></div>
+                    <div><strong>Размер:</strong> <span id="csvSize">-</span></div>
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="form-check mb-3">
+            <input class="form-check-input" type="radio" name="dataSource" id="dataApi" value="api">
+            <label class="form-check-label" for="dataApi">
+                API биржи
+            </label>
+        </div>
+        <div class="mb-3" id="apiGroup" style="display: none;">
+            <label for="exchange" class="form-label">Биржа</label>
+            <select class="form-select" id="exchange">
+                <option value="binance">Binance</option>
+                <option value="okx">OKX</option>
+                <option value="bybit">Bybit</option>
+                <option value="kucoin">KuCoin</option>
+            </select>
+            <div class="mt-2">
+                <label for="apiSymbol" class="form-label">Символ</label>
+                <input type="text" class="form-control" id="apiSymbol" value="BTC/USDT">
+            </div>
+            <div class="mt-2">
+                <label for="timeframe" class="form-label">Таймфрейм</label>
+                <select class="form-select" id="timeframe">
+                    <option value="1m">1 минута</option>
+                    <option value="5m">5 минут</option>
+                    <option value="15m" selected>15 минут</option>
+                    <option value="1h">1 час</option>
+                    <option value="4h">4 часа</option>
+                    <option value="1d">1 день</option>
+                </select>
+            </div>
+            <div class="mt-2">
+                <label for="marketType" class="form-label">Тип рынка</label>
+                <select class="form-select" id="marketType">
+                    <option value="spot" selected>Спот</option>
+                    <option value="swap">Фьючерсы (Swap/Perpetual)</option>
+                    <option value="futures">Фьючерсы с экспирацией</option>
+                </select>
+                <small class="form-text text-muted">
+                    <i class="fas fa-info-circle"></i> Swap - бессрочные контракты, Futures - с датой истечения
+                </small>
+            </div>
+            <div class="mt-2">
+                <label class="form-label">Период загрузки</label>
+                <div class="btn-group w-100" role="group" id="periodButtons">
+                    <input type="radio" class="btn-check" name="dataPeriod" id="period1m" value="1m" checked>
+                    <label class="btn btn-outline-primary btn-sm" for="period1m">1 месяц</label>
+
+                    <input type="radio" class="btn-check" name="dataPeriod" id="period3m" value="3m">
+                    <label class="btn btn-outline-primary btn-sm" for="period3m">3 месяца</label>
+
+                    <input type="radio" class="btn-check" name="dataPeriod" id="period6m" value="6m">
+                    <label class="btn btn-outline-primary btn-sm" for="period6m">6 месяцев</label>
+
+                    <input type="radio" class="btn-check" name="dataPeriod" id="period1y" value="1y">
+                    <label class="btn btn-outline-primary btn-sm" for="period1y">1 год</label>
+
+                    <input type="radio" class="btn-check" name="dataPeriod" id="periodAll" value="all">
+                    <label class="btn btn-outline-primary btn-sm" for="periodAll">Все</label>
+                </div>
+            </div>
+            <div class="mt-2">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="useCustomDateRange" onchange="toggleCustomDateRange()">
+                    <label class="form-check-label" for="useCustomDateRange">
+                        Указать свой диапазон дат
+                    </label>
+                </div>
+            </div>
+            <div id="customDateRangeGroup" style="display: none;">
+                <div class="mt-2">
+                    <label for="startDate" class="form-label">Начальная дата</label>
+                    <input type="date" class="form-control" id="startDate" value="">
+                </div>
+                <div class="mt-2">
+                    <label for="endDate" class="form-label">Конечная дата</label>
+                    <input type="date" class="form-control" id="endDate" value="">
+                </div>
+            </div>
+            <div class="mt-2">
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="downloadDataFromApi()">
+                    <i class="fas fa-download me-1"></i>Загрузить данные
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Shared JavaScript for Data Source Selector -->
+<script>
+// Toggle data source visibility (CSV vs API)
+document.querySelectorAll('input[name="dataSource"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const csvGroup = document.getElementById('csvFileGroup');
+        const apiGroup = document.getElementById('apiGroup');
+
+        if (this.value === 'csv') {
+            csvGroup.style.display = 'block';
+            apiGroup.style.display = 'none';
+        } else {
+            csvGroup.style.display = 'none';
+            apiGroup.style.display = 'block';
+        }
+    });
+});
+
+// Show CSV file info when selected
+const csvFileSelect = document.getElementById('csvFile');
+if (csvFileSelect) {
+    csvFileSelect.addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        const period = selectedOption.getAttribute('data-range') || '-';
+        const rows = selectedOption.getAttribute('data-rows') || '-';
+        const size = selectedOption.getAttribute('data-size') || '-';
+
+        document.getElementById('csvPeriod').textContent = period;
+        document.getElementById('csvRows').textContent = rows;
+
+        const sizeElement = document.getElementById('csvSize');
+        if (sizeElement) {
+            const sizeKb = (parseInt(size) / 1024).toFixed(2);
+            sizeElement.textContent = sizeKb + ' KB';
+        }
+
+        // Show info box
+        document.getElementById('csvFileInfo').style.display = 'block';
+    });
+
+    // Trigger initial display
+    if (csvFileSelect.options.length > 0) {
+        csvFileSelect.dispatchEvent(new Event('change'));
+    }
+}
+
+// Toggle custom date range (simple version - can be overridden by page)
+if (typeof toggleCustomDateRange !== 'function') {
+    function toggleCustomDateRange() {
+        const checkbox = document.getElementById('useCustomDateRange');
+        const customDateRangeGroup = document.getElementById('customDateRangeGroup');
+        customDateRangeGroup.style.display = checkbox.checked ? 'block' : 'none';
+    }
+}
+</script>

@@ -11,8 +11,52 @@ from contextlib import contextmanager
 from datetime import datetime
 import os
 import logging
+import pandas as pd
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def convert_for_json(obj):
+    """
+    Recursively convert datetime, Timestamp, numpy types to JSON-serializable formats
+    """
+    # Check None first
+    if obj is None:
+        return None
+
+    # Check collections before scalars
+    if isinstance(obj, dict):
+        return {key: convert_for_json(value) for key, value in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_for_json(item) for item in obj]
+    elif isinstance(obj, np.ndarray):
+        return convert_for_json(obj.tolist())
+
+    # Check datetime types
+    elif isinstance(obj, (pd.Timestamp, datetime)):
+        return obj.isoformat()
+
+    # Check numeric types
+    elif isinstance(obj, (np.integer, np.floating)):
+        return obj.item()
+    elif isinstance(obj, (int, float, str, bool)):
+        return obj
+
+    # Check for NaN/NaT (only for scalar values)
+    elif hasattr(obj, '__float__'):
+        try:
+            if pd.isna(obj):
+                return None
+        except (ValueError, TypeError):
+            pass
+
+    # Convert objects with __dict__
+    if hasattr(obj, '__dict__'):
+        return convert_for_json(obj.__dict__)
+
+    # Default: return as is
+    return obj
 
 # Database URL from environment
 DATABASE_URL = os.getenv(
@@ -104,7 +148,7 @@ class BacktestHistory(Base):
         """Convert model to dictionary"""
         return {
             'id': self.id,
-            'task_id': self.task_id,
+            'task_id': str(self.task_id) if self.task_id else None,
             'symbol': self.symbol,
             'timeframe': self.timeframe,
             'config_name': self.config_name,
@@ -121,6 +165,52 @@ class BacktestHistory(Base):
             'order_type': self.order_type,
             'start_date': self.start_date.isoformat() if self.start_date else None,
             'end_date': self.end_date.isoformat() if self.end_date else None
+        }
+
+
+class OptimizationResult(Base):
+    """Optimization results model"""
+    __tablename__ = 'optimization_results'
+    __table_args__ = {'schema': 'backtester'}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_id = Column(String(36), unique=True, nullable=False)
+    symbol = Column(String(50))
+    timeframe = Column(String(10))
+    status = Column(String(20), nullable=False)
+    n_trials = Column(Integer, default=100)
+    optimization_metric = Column(String(50), default='custom_score')
+    best_params = Column(JSON)
+    best_score = Column(Float)
+    best_config = Column(JSON)
+    best_results = Column(JSON)
+    all_trials = Column(JSON)  # Top 50 trials
+    created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    duration_minutes = Column(Float)
+    user_id = Column(String(100))  # Telegram user_id
+
+    def to_dict(self):
+        """Convert model to dictionary"""
+        return {
+            'id': self.id,
+            'task_id': str(self.task_id) if self.task_id else None,
+            'symbol': self.symbol,
+            'timeframe': self.timeframe,
+            'status': self.status,
+            'n_trials': self.n_trials,
+            'optimization_metric': self.optimization_metric,
+            'best_params': self.best_params,
+            'best_score': self.best_score,
+            'best_config': self.best_config,
+            'best_results': self.best_results,
+            'all_trials': self.all_trials,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'duration_minutes': self.duration_minutes,
+            'user_id': self.user_id
         }
 
 
@@ -298,6 +388,114 @@ def get_all_strategy_configs():
             .order_by(StrategyConfig.updated_at.desc())\
             .all()
         return [c.to_dict() for c in configs]
+
+
+# ============================================================================
+# Optimization helper functions
+# ============================================================================
+
+def save_optimization_result(task_id: str, optimization_data: dict):
+    """Save optimization result"""
+    with get_db_session() as session:
+        # Convert all data to JSON-serializable format
+        optimization_data = convert_for_json(optimization_data)
+
+        best_config = optimization_data.get('best_config', {})
+        symbol = best_config.get('symbol', 'Unknown')
+        timeframe = best_config.get('timeframe', 'Unknown')
+
+        # Convert started_at to datetime if it's a string
+        started_at = optimization_data.get('started_at')
+        if isinstance(started_at, str):
+            started_at = datetime.fromisoformat(started_at)
+
+        optimization = OptimizationResult(
+            task_id=task_id,
+            symbol=symbol,
+            timeframe=timeframe,
+            status=optimization_data.get('status', 'completed'),
+            n_trials=optimization_data.get('n_trials', 100),
+            optimization_metric=optimization_data.get('optimization_metric', 'custom_score'),
+            best_params=optimization_data.get('best_params'),
+            best_score=optimization_data.get('best_score'),
+            best_config=best_config,
+            best_results=optimization_data.get('best_results'),
+            all_trials=optimization_data.get('all_trials', []),
+            started_at=started_at,
+            completed_at=datetime.utcnow(),
+            duration_minutes=optimization_data.get('duration_minutes'),
+            user_id=optimization_data.get('user_id')
+        )
+
+        session.add(optimization)
+        session.commit()
+        logger.info(f"Saved optimization result: {task_id}")
+
+
+def get_optimization_by_task_id(task_id: str):
+    """Get optimization by task ID"""
+    with get_db_session() as session:
+        optimization = session.query(OptimizationResult).filter_by(task_id=task_id).first()
+        return optimization.to_dict() if optimization else None
+
+
+def get_recent_optimizations(limit: int = 20):
+    """Get recent optimizations"""
+    with get_db_session() as session:
+        optimizations = session.query(OptimizationResult)\
+            .order_by(OptimizationResult.created_at.desc())\
+            .limit(limit)\
+            .all()
+        return [o.to_dict() for o in optimizations]
+
+
+def check_user_optimizer_access(user_id: str) -> bool:
+    """
+    Check if user has access to optimizer feature
+
+    Args:
+        user_id: Telegram user_id
+
+    Returns:
+        True if user is optimizer admin, False otherwise
+    """
+    # Hardcoded admin IDs (temporary, TODO: move to config/env)
+    HARDCODED_OPTIMIZER_ADMINS = [
+        '297936848',  # Main admin
+    ]
+
+    # Check hardcoded list first
+    if str(user_id) in HARDCODED_OPTIMIZER_ADMINS:
+        logger.info(f"User {user_id} granted optimizer access (hardcoded admin)")
+        return True
+
+    # Check database
+    try:
+        import psycopg2
+        conn = psycopg2.connect(
+            host=os.getenv('DB_HOST', 'postgres'),
+            port=os.getenv('DB_PORT', '5432'),
+            database=os.getenv('DB_NAME', 'backtester'),
+            user=os.getenv('DB_USER', 'backtester'),
+            password=os.getenv('DB_PASSWORD', 'changeme')
+        )
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT is_optimizer_admin
+            FROM market_data.bot_subscribers
+            WHERE user_id = %s
+        """, (user_id,))
+
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+
+        return result[0] if result else False
+
+    except Exception as e:
+        logger.error(f"Failed to check optimizer access: {e}")
+        return False
 
 
 # ============================================================================

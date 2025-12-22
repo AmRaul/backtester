@@ -13,6 +13,7 @@ from pathlib import Path
 import base64
 import io
 import pandas as pd
+import logging
 
 from backtester import Backtester
 from reporter import BacktestReporter
@@ -30,15 +31,61 @@ from database import (
     get_recent_backtests,
     get_all_strategy_configs,
     check_db_health,
-    init_database
+    init_database,
+    check_user_optimizer_access,
+    get_optimization_by_task_id,
+    get_recent_optimizations,
+    save_optimization_result
 )
+
+# Optimization modules
+from optimization_queue import global_optimization_queue
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = 'backtester_secret_key_change_in_production'
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Глобальные переменные для отслеживания задач
 running_backtests = {}
 backtest_results = {}
+
+# Helper functions
+def get_csv_files_list():
+    """Returns list of CSV files with metadata"""
+    csv_files = []
+    data_dir = Path('data')
+    if data_dir.exists():
+        for csv_file in data_dir.glob('*.csv'):
+            try:
+                df = pd.read_csv(csv_file)
+                rows_count = len(df)
+                date_range = None
+                if 'timestamp' in df.columns and len(df) > 0:
+                    start_date = pd.to_datetime(df['timestamp'].iloc[0]).strftime('%Y-%m-%d')
+                    end_date = pd.to_datetime(df['timestamp'].iloc[-1]).strftime('%Y-%m-%d')
+                    date_range = f"{start_date} - {end_date}"
+
+                csv_files.append({
+                    'path': str(csv_file),
+                    'name': csv_file.name,
+                    'date_range': date_range,
+                    'rows': rows_count,
+                    'size': csv_file.stat().st_size
+                })
+            except Exception as e:
+                csv_files.append({
+                    'path': str(csv_file),
+                    'name': csv_file.name,
+                    'date_range': None,
+                    'rows': 0,
+                    'size': csv_file.stat().st_size if csv_file.exists() else 0
+                })
+        csv_files.sort(key=lambda x: Path(x['path']).stat().st_mtime, reverse=True)
+    return csv_files
 
 # ============================================================================
 # PostgreSQL database is now used via database.py
@@ -163,38 +210,8 @@ def config_page():
         print(f"Ошибка загрузки бирж: {e}")
         exchanges = ['binance', 'okx', 'bybit', 'kucoin']  # Fallback список
 
-    # Получаем список CSV файлов из директории data/ с метаданными
-    csv_files = []
-    data_dir = Path('data')
-    if data_dir.exists():
-        for csv_file in data_dir.glob('*.csv'):
-            try:
-                df = pd.read_csv(csv_file)
-                rows_count = len(df)
-                date_range = None
-                if 'timestamp' in df.columns and len(df) > 0:
-                    start_date = pd.to_datetime(df['timestamp'].iloc[0]).strftime('%Y-%m-%d')
-                    end_date = pd.to_datetime(df['timestamp'].iloc[-1]).strftime('%Y-%m-%d')
-                    date_range = f"{start_date} - {end_date}"
-
-                csv_files.append({
-                    'path': str(csv_file),
-                    'name': csv_file.name,
-                    'date_range': date_range,
-                    'rows': rows_count,
-                    'size': csv_file.stat().st_size
-                })
-            except Exception as e:
-                # Если не удается прочитать, добавляем без метаданных
-                csv_files.append({
-                    'path': str(csv_file),
-                    'name': csv_file.name,
-                    'date_range': None,
-                    'rows': 0,
-                    'size': csv_file.stat().st_size if csv_file.exists() else 0
-                })
-        # Сортируем по дате изменения
-        csv_files.sort(key=lambda x: Path(x['path']).stat().st_mtime, reverse=True)
+    # Use helper function for CSV files
+    csv_files = get_csv_files_list()
 
     return render_template('config.html', examples=examples, exchanges=exchanges, csv_files=csv_files)
 
@@ -1066,6 +1083,212 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'version': '1.0.0'
     }), 200
+
+# ============================================================================
+# Optimization Routes (Protected - Admin Only)
+# ============================================================================
+
+def require_optimizer_access(f):
+    """Decorator to check optimizer access"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Get user_id from request
+        user_id = request.headers.get('X-User-ID') or request.args.get('user_id')
+
+        if not user_id:
+            return jsonify({
+                'error': 'Unauthorized - user_id required',
+                'hint': 'Add X-User-ID header or ?user_id= parameter'
+            }), 401
+
+        # Check access
+        if not check_user_optimizer_access(str(user_id)):
+            return jsonify({
+                'error': 'Forbidden - optimizer access denied',
+                'user_id': user_id,
+                'hint': 'Contact admin to grant optimizer access'
+            }), 403
+
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+@app.route('/optimize')
+def optimize_page():
+    """Optimization configuration page (protected)"""
+    # Use helper function for CSV files
+    csv_files = get_csv_files_list()
+    return render_template('optimize.html', csv_files=csv_files)
+
+
+@app.route('/optimization-results/<task_id>')
+def optimization_results_page(task_id):
+    """Optimization results page"""
+    return render_template('optimization_results.html', task_id=task_id)
+
+
+@app.route('/api/optimize/start', methods=['POST'])
+@require_optimizer_access
+def start_optimization():
+    """Start optimization task"""
+    try:
+        data = request.json
+
+        if not data:
+            return jsonify({'error': 'No configuration provided'}), 400
+
+        base_config = data.get('base_config')
+        optimization_params = data.get('optimization_params')
+        n_trials = data.get('n_trials', 100)
+        user_id = request.headers.get('X-User-ID') or request.args.get('user_id')
+
+        if not base_config or not optimization_params:
+            return jsonify({'error': 'base_config and optimization_params required'}), 400
+
+        # Import notification function
+        try:
+            import sys
+            sys.path.append('market-analytics/bot')
+            from notifications import send_optimization_notification
+            notification_callback = send_optimization_notification
+        except Exception as e:
+            print(f"Warning: Could not import notification function: {e}")
+            notification_callback = None
+
+        # Add task to queue
+        task_id = global_optimization_queue.add_task(
+            config=base_config,
+            optimization_params=optimization_params,
+            n_trials=n_trials,
+            user_id=user_id,
+            notification_callback=notification_callback
+        )
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': 'Optimization task added to queue',
+            'queue_position': len(global_optimization_queue.queue)
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/optimize/status/<task_id>')
+def get_optimization_status(task_id):
+    """Get optimization task status"""
+    try:
+        status = global_optimization_queue.get_task_status(task_id)
+
+        if not status:
+            # Check database
+            db_result = get_optimization_by_task_id(task_id)
+            if db_result:
+                return jsonify(db_result)
+            return jsonify({'error': 'Task not found'}), 404
+
+        return jsonify(status)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/optimize/queue')
+def get_optimization_queue_status():
+    """Get overall queue status"""
+    try:
+        status = global_optimization_queue.get_queue_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/optimize/results/<task_id>')
+def get_optimization_results(task_id):
+    """Get optimization results"""
+    try:
+        # Check queue first
+        status = global_optimization_queue.get_task_status(task_id)
+
+        if status and status.get('results'):
+            return jsonify(status['results'])
+
+        # Check database
+        db_result = get_optimization_by_task_id(task_id)
+        if db_result:
+            return jsonify(db_result)
+
+        return jsonify({'error': 'Results not found'}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/optimize/history')
+def get_optimization_history():
+    """Get recent optimization history"""
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        history = get_recent_optimizations(limit=limit)
+        return jsonify(history)
+    except Exception as e:
+        logger.error(f"Failed to fetch optimization history: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/optimize/cancel/<task_id>', methods=['POST'])
+@require_optimizer_access
+def cancel_optimization(task_id):
+    """Cancel pending optimization task"""
+    try:
+        success = global_optimization_queue.cancel_task(task_id)
+
+        if success:
+            return jsonify({'success': True, 'message': 'Task cancelled'})
+        else:
+            return jsonify({'error': 'Task not found or already running'}), 400
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/optimize/save-config/<task_id>', methods=['POST'])
+@require_optimizer_access
+def save_optimized_config(task_id):
+    """Save best configuration from optimization as strategy config"""
+    try:
+        # Get optimization results
+        optimization = get_optimization_by_task_id(task_id)
+
+        if not optimization:
+            return jsonify({'error': 'Optimization not found'}), 404
+
+        best_config = optimization.get('best_config')
+        if not best_config:
+            return jsonify({'error': 'No best config found'}), 404
+
+        # Generate name
+        symbol = best_config.get('symbol', 'UNKNOWN')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        config_name = f"Optimized_{symbol}_{timestamp}"
+
+        # Save as strategy config
+        save_strategy_config(
+            name=config_name,
+            config=best_config,
+            description=f"Auto-generated from optimization {task_id[:8]}",
+            tags=['optimized', 'auto-generated']
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'Configuration saved as "{config_name}"'
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @app.errorhandler(404)
 def not_found(error):

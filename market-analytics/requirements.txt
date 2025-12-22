@@ -31,6 +31,7 @@ apscheduler>=3.10.4
 
 # Telegram Bot
 aiogram>=3.3.0
+python-telegram-bot>=20.0  # For sync notifications in optimizer
 
 # Database for bot subscribers
 psycopg2-binary>=2.9.0

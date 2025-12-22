@@ -149,6 +149,10 @@ postgres_data/
 *.dump
 *.sql.gz
 
+# Database backups (local only, not committed)
+backups/
+!backups/.gitignore
+
 # Market analytics cache
 market-analytics/.cache/
 market-analytics/__pycache__/

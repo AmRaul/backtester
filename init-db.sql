@@ -43,6 +43,27 @@ CREATE TABLE IF NOT EXISTS backtester.backtest_history (
     end_date DATE
 );
 
+-- Optimization results table
+CREATE TABLE IF NOT EXISTS backtester.optimization_results (
+    id SERIAL PRIMARY KEY,
+    task_id UUID UNIQUE NOT NULL,
+    symbol VARCHAR(50),
+    timeframe VARCHAR(10),
+    status VARCHAR(20) NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+    n_trials INTEGER DEFAULT 100,
+    optimization_metric VARCHAR(50) DEFAULT 'custom_score',
+    best_params JSONB,
+    best_score NUMERIC(12,4),
+    best_config JSONB,
+    best_results JSONB,
+    all_trials JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    duration_minutes NUMERIC(10,2),
+    user_id VARCHAR(100)
+);
+
 -- Indexes for backtester schema
 CREATE INDEX IF NOT EXISTS idx_backtest_task_id ON backtester.backtest_history(task_id);
 CREATE INDEX IF NOT EXISTS idx_backtest_symbol ON backtester.backtest_history(symbol);
@@ -50,11 +71,17 @@ CREATE INDEX IF NOT EXISTS idx_backtest_created ON backtester.backtest_history(c
 CREATE INDEX IF NOT EXISTS idx_backtest_status ON backtester.backtest_history(status);
 CREATE INDEX IF NOT EXISTS idx_strategy_name ON backtester.strategy_configs(name);
 CREATE INDEX IF NOT EXISTS idx_strategy_updated ON backtester.strategy_configs(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_optimization_task_id ON backtester.optimization_results(task_id);
+CREATE INDEX IF NOT EXISTS idx_optimization_created ON backtester.optimization_results(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_optimization_status ON backtester.optimization_results(status);
+CREATE INDEX IF NOT EXISTS idx_optimization_user ON backtester.optimization_results(user_id);
 
 -- JSONB indexes for fast queries
 CREATE INDEX IF NOT EXISTS idx_backtest_config_json ON backtester.backtest_history USING GIN (config_json);
 CREATE INDEX IF NOT EXISTS idx_backtest_results_json ON backtester.backtest_history USING GIN (results_json);
 CREATE INDEX IF NOT EXISTS idx_strategy_config_json ON backtester.strategy_configs USING GIN (config_json);
+CREATE INDEX IF NOT EXISTS idx_optimization_best_params ON backtester.optimization_results USING GIN (best_params);
+CREATE INDEX IF NOT EXISTS idx_optimization_all_trials ON backtester.optimization_results USING GIN (all_trials);
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION backtester.update_updated_at_column()
@@ -218,17 +245,20 @@ CREATE TABLE IF NOT EXISTS market_data.bot_subscribers (
     active BOOLEAN DEFAULT TRUE,
     timezone VARCHAR(50) DEFAULT 'UTC',
     notifications_enabled BOOLEAN DEFAULT TRUE,
-    last_notification_at TIMESTAMPTZ
+    last_notification_at TIMESTAMPTZ,
+    is_optimizer_admin BOOLEAN DEFAULT FALSE
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscribers_user_id ON market_data.bot_subscribers(user_id);
 CREATE INDEX IF NOT EXISTS idx_subscribers_active ON market_data.bot_subscribers(active) WHERE active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_subscribers_optimizer_admin ON market_data.bot_subscribers(is_optimizer_admin) WHERE is_optimizer_admin = TRUE;
 
 -- Success message
 DO $$
 BEGIN
     RAISE NOTICE 'Database initialization complete!';
     RAISE NOTICE 'Created schemas: backtester, market_data';
-    RAISE NOTICE 'Tables created in backtester: strategy_configs, backtest_history';
+    RAISE NOTICE 'Tables created in backtester: strategy_configs, backtest_history, optimization_results';
     RAISE NOTICE 'Tables created in market_data: metrics, market_narrative, macro_indicators, funding_rates, liquidations, btc_levels, volatility, bot_subscribers';
+    RAISE NOTICE 'Added is_optimizer_admin flag to bot_subscribers table';
 END $$;
