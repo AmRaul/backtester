@@ -154,7 +154,9 @@ class TradingStrategy:
 
         # Для dual timeframe режима (эмуляция Bar Magnifier)
         self.last_processed_strategy_bar = None  # timestamp последней обработанной strategy свечи
-        self.calc_on_order_fills = False  # Эмуляция PineScript calc_on_order_fills
+        self.calc_on_order_fills = config.get('calc_on_order_fills', True)  # Эмуляция PineScript calc_on_order_fills (по умолчанию True как в Pine)
+        self.max_entries_per_bar = config.get('max_entries_per_bar', 1)  # Максимум входов на одной strategy свече
+        self.entries_on_current_bar = 0  # Счетчик входов на текущей strategy свече
         
         # Инициализация индикаторов
         self.indicators_enabled = False
@@ -677,8 +679,15 @@ class TradingStrategy:
         """
         Проверяет достижение TP/SL внутри свечи используя high/low
 
+        ВАЖНО: Учитывает направление свечи для определения последовательности событий.
+        Если и TP и SL достигнуты на одной свече, выбирается тот что произошел раньше.
+
+        Логика (как в PineScript Bar Magnifier):
+        - Растущая свеча (close >= open): цена сначала шла вверх → для LONG сначала TP
+        - Падающая свеча (close < open): цена сначала шла вниз → для LONG сначала SL
+
         Args:
-            current_data: данные текущей свечи (должны содержать high, low, close)
+            current_data: данные текущей свечи (должны содержать open, high, low, close)
             position: открытая позиция
 
         Returns:
@@ -690,7 +699,11 @@ class TradingStrategy:
         high = current_data.get('high', current_data['close'])
         low = current_data.get('low', current_data['close'])
         close = current_data['close']
+        open_price = current_data.get('open', current_data['close'])
         avg_price = position.average_price
+
+        # Определяем направление свечи
+        is_bullish_candle = close >= open_price
 
         if position.order_type == OrderType.LONG:
             # Рассчитываем уровни TP и SL
@@ -702,20 +715,25 @@ class TradingStrategy:
             if self.sl_enabled:
                 sl_price = avg_price * (1 - self.stop_loss_percent)
 
-            # Проверяем что произошло раньше на этой свече
-            # Важно: нужно определить последовательность событий
+            # Проверяем достижение уровней
+            tp_hit = tp_price is not None and high >= tp_price
+            sl_hit = sl_price is not None and low <= sl_price
 
-            # Если свеча растущая (close > open), сначала проверяем TP
-            # Если свеча падающая (close < open), сначала проверяем SL
-
-            # Упрощенная логика: проверяем что HIGH достиг TP или LOW достиг SL
-            if tp_price and high >= tp_price:
+            # Если оба уровня достигнуты - определяем что произошло раньше
+            if tp_hit and sl_hit:
+                # Растущая свеча: цена сначала росла (TP) потом могла упасть (SL)
+                # Падающая свеча: цена сначала падала (SL) потом могла вырасти (TP)
+                if is_bullish_candle:
+                    return True, "take_profit", tp_price
+                else:
+                    return True, "stop_loss", sl_price
+            elif tp_hit:
                 return True, "take_profit", tp_price
-            elif sl_price and low <= sl_price:
+            elif sl_hit:
                 return True, "stop_loss", sl_price
 
         else:  # SHORT
-            # Для шорта наоборот
+            # Для шорта уровни инвертированы
             tp_price = None
             sl_price = None
 
@@ -724,10 +742,21 @@ class TradingStrategy:
             if self.sl_enabled:
                 sl_price = avg_price * (1 + self.stop_loss_percent)
 
-            # Проверяем LOW для TP и HIGH для SL в шорте
-            if tp_price and low <= tp_price:
+            # Проверяем достижение уровней
+            tp_hit = tp_price is not None and low <= tp_price
+            sl_hit = sl_price is not None and high >= sl_price
+
+            # Если оба уровня достигнуты - определяем что произошло раньше
+            if tp_hit and sl_hit:
+                # Растущая свеча: цена росла (для SHORT это плохо) → сначала SL
+                # Падающая свеча: цена падала (для SHORT это хорошо) → сначала TP
+                if is_bullish_candle:
+                    return True, "stop_loss", sl_price
+                else:
+                    return True, "take_profit", tp_price
+            elif tp_hit:
                 return True, "take_profit", tp_price
-            elif sl_price and high >= sl_price:
+            elif sl_hit:
                 return True, "stop_loss", sl_price
 
         return False, "", 0.0
@@ -1095,6 +1124,7 @@ class TradingStrategy:
         # ✅ Проверяем сигналы входа ТОЛЬКО при новой strategy свече (как в PineScript)
         if is_new_strategy_bar:
             self.last_processed_strategy_bar = strategy_bar_timestamp
+            self.entries_on_current_bar = 0  # Сбрасываем счетчик входов на новой свече
 
             # Проверяем условия входа ТОЛЬКО на новой strategy свече
             if not self.has_open_position():
@@ -1102,6 +1132,7 @@ class TradingStrategy:
                     # Входим сразу по текущей execution цене
                     order = self.create_order(timestamp, current_price)
                     if self.execute_order(order):
+                        self.entries_on_current_bar += 1  # Увеличиваем счетчик
                         actions.append({
                             'action': 'open_position',
                             'order_id': order.id,
@@ -1128,7 +1159,42 @@ class TradingStrategy:
                         'timestamp': timestamp
                     })
 
-        # ✅ TP/SL проверяем на КАЖДОЙ execution свече (как в Bar Magnifier!)
+        # ✅ ПРИОРИТЕТ 1: Проверяем intrabar exit через high/low (точное определение TP/SL)
+        # Это критично для dual timeframe режима, так как execution свечи могут быть мелкими
+        if self.has_open_position():
+            position = self.get_open_position()
+            intrabar_exit, reason, exit_price = self.check_intrabar_exit(current_exec_data, position)
+
+            if intrabar_exit:
+                trade_info = self.close_position(exit_price, timestamp, reason)
+                actions.append({
+                    'action': 'close_position',
+                    'trade_info': trade_info,
+                    'timestamp': timestamp,
+                    'exit_type': 'intrabar'  # Выход внутри свечи по high/low
+                })
+
+                # ✅ Эмуляция calc_on_order_fills (как в PineScript)
+                # После закрытия позиции можем сразу проверить новый сигнал на текущей strategy свече
+                if self.calc_on_order_fills and not is_new_strategy_bar:
+                    # Проверяем что не превышен лимит входов на одной свече
+                    if self.entries_on_current_bar < self.max_entries_per_bar:
+                        # Проверяем можем ли войти снова
+                        if self.should_enter_position(current_strategy_data, historical_strategy_data):
+                            order = self.create_order(timestamp, current_price)
+                            if self.execute_order(order):
+                                self.entries_on_current_bar += 1  # Увеличиваем счетчик
+                                actions.append({
+                                    'action': 'open_position',
+                                    'order_id': order.id,
+                                    'price': current_price,
+                                    'quantity': order.quantity,
+                                    'timestamp': timestamp
+                                })
+
+                return actions  # Прерываем выполнение при закрытии позиции
+
+        # ✅ ПРИОРИТЕТ 2: TP/SL проверяем по close price (trailing stops, просадка и т.д.)
         if self.has_open_position():
             position = self.get_open_position()
             should_close, reason = self.should_close_position(current_price, position)
@@ -1139,23 +1205,26 @@ class TradingStrategy:
                     'action': 'close_position',
                     'trade_info': trade_info,
                     'timestamp': timestamp,
-                    'exit_type': 'execution_price'
+                    'exit_type': 'close_price'  # Выход по цене закрытия
                 })
 
                 # ✅ Эмуляция calc_on_order_fills (как в PineScript)
                 # После закрытия позиции можем сразу проверить новый сигнал на текущей strategy свече
                 if self.calc_on_order_fills and not is_new_strategy_bar:
-                    # Проверяем можем ли войти снова
-                    if self.should_enter_position(current_strategy_data, historical_strategy_data):
-                        order = self.create_order(timestamp, current_price)
-                        if self.execute_order(order):
-                            actions.append({
-                                'action': 'open_position',
-                                'order_id': order.id,
-                                'price': current_price,
-                                'quantity': order.quantity,
-                                'timestamp': timestamp
-                            })
+                    # Проверяем что не превышен лимит входов на одной свече
+                    if self.entries_on_current_bar < self.max_entries_per_bar:
+                        # Проверяем можем ли войти снова
+                        if self.should_enter_position(current_strategy_data, historical_strategy_data):
+                            order = self.create_order(timestamp, current_price)
+                            if self.execute_order(order):
+                                self.entries_on_current_bar += 1  # Увеличиваем счетчик
+                                actions.append({
+                                    'action': 'open_position',
+                                    'order_id': order.id,
+                                    'price': current_price,
+                                    'quantity': order.quantity,
+                                    'timestamp': timestamp
+                                })
 
                 return actions  # Прерываем выполнение при закрытии позиции
 

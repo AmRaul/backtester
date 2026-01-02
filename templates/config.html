@@ -715,7 +715,11 @@ function updateSymbolFromCsv() {
 
     if (csvFile) {
         // Извлекаем символ из имени файла
-        const symbol = csvFile.split('/').pop().split('_')[0];
+        const fileName = csvFile.split('/').pop();
+        const parts = fileName.split('_');
+        const isDual = fileName.includes('_dual_');
+        const symbol = parts[0];
+
         document.getElementById('symbol').value = symbol;
 
         // Обновляем информационную панель
@@ -729,6 +733,13 @@ function updateSymbolFromCsv() {
             document.getElementById('csvPeriod').textContent = dateRange;
             document.getElementById('csvRows').textContent = rows;
             document.getElementById('csvSize').textContent = formatFileSize(size);
+
+            // Show/hide dual badge
+            const dualInfo = document.getElementById('csvDualInfo');
+            if (dualInfo) {
+                dualInfo.style.display = isDual ? 'block' : 'none';
+            }
+
             infoPanel.style.display = 'block';
         } else {
             infoPanel.style.display = 'none';
@@ -993,7 +1004,18 @@ async function updateCsvFileList(filename = null) {
         const data = await response.json();
 
         const csvSelect = document.getElementById('csvFile');
+        const csvStrategySelect = document.getElementById('csvFileStrategy');
+
         csvSelect.innerHTML = ''; // Очищаем текущий список
+
+        // Очищаем и добавляем дефолтную опцию для strategy selector
+        if (csvStrategySelect) {
+            csvStrategySelect.innerHTML = '';
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = '-- Выберите парный файл --';
+            csvStrategySelect.appendChild(defaultOption);
+        }
 
         if (data.files && data.files.length > 0) {
             data.files.forEach(file => {
@@ -1007,9 +1029,14 @@ async function updateCsvFileList(filename = null) {
 
                 // Упрощенное отображение: только SYMBOL - TIMEFRAME
                 const nameParts = file.name.split('_');
+                const isDual = file.name.includes('_dual_');
+                option.setAttribute('data-dual', isDual ? 'true' : 'false');
+
                 const symbol = nameParts[0] || file.name;
-                const timeframe = nameParts[1] || '';
-                option.textContent = `${symbol} - ${timeframe}`;
+                const timeframe = isDual ? (nameParts[2] || '') : (nameParts[1] || '');
+                const timestamp = isDual ? (nameParts[3] || '') : (nameParts[2] || '');
+
+                option.textContent = `${symbol} - ${timeframe}${isDual ? ' 🔄 [Dual]' : ''}`;
 
                 // Выбираем либо указанный файл, либо первый в списке
                 if (filename && file.path === filename) {
@@ -1018,6 +1045,15 @@ async function updateCsvFileList(filename = null) {
                     option.selected = true;
                 }
                 csvSelect.appendChild(option);
+
+                // Также добавляем во второй селектор (Strategy TF)
+                if (csvStrategySelect) {
+                    const stratOption = option.cloneNode(true);
+                    stratOption.setAttribute('data-symbol', symbol);
+                    stratOption.setAttribute('data-timeframe', timeframe);
+                    stratOption.setAttribute('data-timestamp', timestamp);
+                    csvStrategySelect.appendChild(stratOption);
+                }
             });
         } else {
             const option = document.createElement('option');
@@ -1166,19 +1202,56 @@ async function runBacktest() {
                 max_open_positions: parseInt(document.getElementById('maxPositions').value),
                 daily_loss_limit: null
             },
-            timeframe: document.getElementById('timeframe').value,
             start_date: null,
             end_date: null
         };
-        
+
+        // Dual Timeframe режим
+        const useDualTimeframe = document.getElementById('useDualTimeframe')?.checked || false;
+        if (useDualTimeframe) {
+            const executionTF = document.getElementById('executionTimeframe').value;
+            const strategyTF = document.getElementById('strategyTimeframe').value;
+
+            // Валидация: execution должен быть меньше strategy
+            const tfValues = {'1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440};
+            if (tfValues[executionTF] >= tfValues[strategyTF]) {
+                alert('Execution Timeframe должен быть меньше Strategy Timeframe!\n\nПример: Execution=1m, Strategy=15m');
+                return;
+            }
+
+            config.execution_timeframe = executionTF;
+            config.timeframe = strategyTF;
+        } else {
+            config.timeframe = document.getElementById('timeframe').value;
+        }
+
         // Определяем источник данных и символ
         const dataSource = document.querySelector('input[name="dataSource"]:checked').value;
         if (dataSource === 'csv') {
             const csvFile = document.getElementById('csvFile').value;
-            config.data_source = {
-                type: 'csv',
-                file: csvFile
-            };
+
+            if (useDualTimeframe) {
+                // Dual режим для CSV - нужны два файла
+                const csvFileStrategy = document.getElementById('csvFileStrategy')?.value;
+
+                if (!csvFileStrategy) {
+                    alert('Для Dual режима необходимо выбрать оба CSV файла:\n- Execution Timeframe (основной файл)\n- Strategy Timeframe (второй файл)');
+                    return;
+                }
+
+                config.data_source = {
+                    type: 'csv_dual',
+                    execution_file: csvFile,
+                    strategy_file: csvFileStrategy
+                };
+            } else {
+                // Обычный режим - один файл
+                config.data_source = {
+                    type: 'csv',
+                    file: csvFile
+                };
+            }
+
             // Символ извлекается из имени файла
             config.symbol = csvFile.split('/').pop().split('_')[0];
         } else {
@@ -1188,7 +1261,8 @@ async function runBacktest() {
                 api: {
                     exchange: document.getElementById('exchange').value,
                     symbol: apiSymbol,
-                    auto_save: true
+                    auto_save: true,
+                    market_type: document.getElementById('marketType').value
                 }
             };
             // Символ конвертируется из API формата

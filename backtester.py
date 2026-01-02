@@ -73,43 +73,71 @@ class Backtester:
             # DUAL TIMEFRAME MODE
             self.use_dual_timeframe = True
 
-            if source_type != 'api':
-                raise ValueError("Dual timeframe режим поддерживается только для API источника данных")
+            if source_type == 'csv_dual':
+                # DUAL TIMEFRAME FROM CSV FILES
+                execution_file = source_config.get('execution_file')
+                strategy_file = source_config.get('strategy_file')
 
-            api_config = source_config.get('api', {})
-            exchange = api_config.get('exchange', 'binance')
-            api_symbol = api_config.get('symbol', 'BTC/USDT')
-            market_type = api_config.get('market_type', 'spot')
+                if not execution_file or not strategy_file:
+                    raise ValueError("Для dual режима с CSV необходимо указать execution_file и strategy_file")
 
-            # Загружаем dual timeframe данные
-            self.execution_data, self.strategy_data = self.data_loader.load_dual_timeframe(
-                symbol=api_symbol,
-                strategy_timeframe=strategy_timeframe,
-                execution_timeframe=execution_timeframe,
-                start_date=self.start_date,
-                end_date=self.end_date,
-                exchange=exchange,
-                market_type=market_type
-            )
+                print(f"Загрузка dual timeframe данных из CSV...")
+                print(f"Execution file: {execution_file}")
+                print(f"Strategy file: {strategy_file}")
 
-            # Автосохранение
-            if api_config.get('auto_save', False):
-                exec_file = self.data_loader.save_to_csv(
-                    filename=f"data/{self.symbol}_{execution_timeframe}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    data=self.execution_data
+                # Загружаем execution данные
+                self.execution_data = self.data_loader.load_from_csv(execution_file, self.symbol)
+
+                # Загружаем strategy данные
+                self.strategy_data = self.data_loader.load_from_csv(strategy_file, self.symbol)
+
+                self.total_ticks = len(self.execution_data)
+                print(f"✅ Dual timeframe режим активирован (CSV)")
+                print(f"Execution: {len(self.execution_data)} тиков")
+                print(f"Strategy: {len(self.strategy_data)} свечей\n")
+
+                return self.execution_data
+
+            elif source_type == 'api':
+                # DUAL TIMEFRAME FROM API
+                api_config = source_config.get('api', {})
+                exchange = api_config.get('exchange', 'binance')
+                api_symbol = api_config.get('symbol', 'BTC/USDT')
+                market_type = api_config.get('market_type', 'spot')
+
+                # Загружаем dual timeframe данные
+                self.execution_data, self.strategy_data = self.data_loader.load_dual_timeframe(
+                    symbol=api_symbol,
+                    strategy_timeframe=strategy_timeframe,
+                    execution_timeframe=execution_timeframe,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    exchange=exchange,
+                    market_type=market_type
                 )
-                strat_file = self.data_loader.save_to_csv(
-                    filename=f"data/{self.symbol}_{strategy_timeframe}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    data=self.strategy_data
-                )
-                print(f"Данные сохранены: {exec_file}, {strat_file}")
 
-            self.total_ticks = len(self.execution_data)
-            print(f"✅ Dual timeframe режим активирован")
-            print(f"Execution TF ({execution_timeframe}): {len(self.execution_data)} тиков")
-            print(f"Strategy TF ({strategy_timeframe}): {len(self.strategy_data)} свечей\n")
+                # Автосохранение
+                if api_config.get('auto_save', False):
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    exec_file = self.data_loader.save_to_csv(
+                        filename=f"data/{self.symbol}_dual_{execution_timeframe}_{timestamp}.csv",
+                        data=self.execution_data
+                    )
+                    strat_file = self.data_loader.save_to_csv(
+                        filename=f"data/{self.symbol}_dual_{strategy_timeframe}_{timestamp}.csv",
+                        data=self.strategy_data
+                    )
+                    print(f"Данные сохранены (dual режим): {exec_file}, {strat_file}")
 
-            return self.execution_data
+                self.total_ticks = len(self.execution_data)
+                print(f"✅ Dual timeframe режим активирован (API)")
+                print(f"Execution TF ({execution_timeframe}): {len(self.execution_data)} тиков")
+                print(f"Strategy TF ({strategy_timeframe}): {len(self.strategy_data)} свечей\n")
+
+                return self.execution_data
+
+            else:
+                raise ValueError("Dual timeframe режим поддерживается только для API или CSV (с двумя файлами)")
 
         else:
             # SINGLE TIMEFRAME MODE (как было раньше)
@@ -235,7 +263,12 @@ class Backtester:
                 current_timestamp = current_exec_data['timestamp']
 
                 # Находим parent candle в strategy timeframe
-                parent_idx = self.data_loader.get_parent_candle_index(current_timestamp, strategy_data)
+                # Передаем strategy_timeframe для правильного расчета времени закрытия свечи
+                parent_idx = self.data_loader.get_parent_candle_index(
+                    current_timestamp,
+                    strategy_data,
+                    strategy_timeframe  # Новый параметр для избежания look-ahead bias
+                )
 
                 # Пропускаем пока не накопим достаточно strategy данных
                 if parent_idx < lookback_period:
@@ -410,6 +443,18 @@ class Backtester:
             avg_trade_duration = 0
             balance_history = []
         
+        # Получаем summary данных (для dual режима используем execution_data)
+        data_summary = {}
+        if self.use_dual_timeframe and self.execution_data is not None:
+            # Временно устанавливаем execution_data для get_summary
+            original_data = self.data_loader.data
+            self.data_loader.data = self.execution_data
+            self.data_loader.symbol = self.symbol
+            data_summary = self.data_loader.get_summary()
+            self.data_loader.data = original_data
+        elif self.data_loader.data is not None:
+            data_summary = self.data_loader.get_summary()
+
         results = {
             'config': self.config,
             'basic_stats': stats,
@@ -425,15 +470,22 @@ class Backtester:
             'trade_history': self.strategy.trade_history,
             'execution_log': self.execution_log,
             'balance_history': balance_history,
-            'data_summary': self.data_loader.get_summary() if self.data_loader.data is not None else {},
+            'data_summary': data_summary,
             'backtest_info': {
                 'start_time': self.start_time,
                 'end_time': time.time(),
                 'duration_seconds': time.time() - self.start_time if self.start_time else 0,
                 'processed_ticks': self.processed_ticks,
-                'total_ticks': self.total_ticks
+                'total_ticks': self.total_ticks,
+                'dual_timeframe': self.use_dual_timeframe
             }
         }
+
+        # Сохраняем OHLCV данные для визуализации
+        if data is not None and len(data) > 0:
+            # Конвертируем в список словарей для JSON сериализации
+            data_for_viz = data[['timestamp', 'open', 'high', 'low', 'close', 'volume']].copy()
+            results['ohlcv_data'] = data_for_viz.to_dict('records')
         
         return results
     

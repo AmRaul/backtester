@@ -459,7 +459,14 @@ class DataLoader:
         offset = timeframe_map[target_timeframe]
 
         # Устанавливаем timestamp как индекс
-        df_resampled = data.set_index('timestamp').resample(offset).agg({
+        # label='left' - метка времени на начале периода (timestamp = время открытия свечи)
+        # closed='left' - включает левую границу периода [start, end)
+        # Это стандартное поведение для финансовых OHLCV данных
+        df_resampled = data.set_index('timestamp').resample(
+            offset,
+            label='left',   # Метка на начале периода
+            closed='left'   # Включая левую границу [start, end)
+        ).agg({
             'open': 'first',
             'high': 'max',
             'low': 'min',
@@ -469,26 +476,87 @@ class DataLoader:
 
         return df_resampled
 
-    def get_parent_candle_index(self, timestamp_1m: pd.Timestamp, data_strategy_tf: pd.DataFrame) -> int:
+    def get_parent_candle_index(self, execution_timestamp: pd.Timestamp,
+                               data_strategy_tf: pd.DataFrame,
+                               strategy_timeframe: str) -> int:
         """
         Находит индекс последней ЗАКРЫТОЙ свечи стратегического таймфрейма
-        для данного 1m тика (избегает look-ahead bias)
+        для данного execution тика (избегает look-ahead bias)
+
+        ВАЖНО: В OHLCV данных timestamp означает время ОТКРЫТИЯ свечи.
+        Свеча полностью закрывается в момент (timestamp + timeframe_duration).
+        Эта функция гарантирует что используются только ПОЛНОСТЬЮ ЗАКРЫТЫЕ свечи.
+
+        Пример (15m timeframe):
+        - Свеча с timestamp=10:00 означает период [10:00 - 10:15)
+        - Свеча закрывается в момент 10:15
+        - Для execution тика 10:05 последняя закрытая свеча - это 09:45 (не 10:00!)
+        - Для execution тика 10:15 последняя закрытая свеча - это 10:00
 
         Args:
-            timestamp_1m: timestamp 1m тика
+            execution_timestamp: timestamp execution тика
             data_strategy_tf: DataFrame стратегического таймфрейма (15m, 1h, etc.)
+            strategy_timeframe: таймфрейм стратегии ('15m', '1h', etc.)
 
         Returns:
-            Индекс родительской свечи в data_strategy_tf
+            Индекс родительской свечи в data_strategy_tf, -1 если нет закрытых свечей
         """
-        # Находим все свечи которые ЗАКРЫЛИСЬ до или в момент timestamp_1m
-        closed_candles = data_strategy_tf[data_strategy_tf['timestamp'] <= timestamp_1m]
+        # Конвертируем таймфрейм в timedelta для расчета времени закрытия
+        timeframe_delta = self._timeframe_to_timedelta(strategy_timeframe)
+
+        # Создаем копию для безопасности
+        df_temp = data_strategy_tf.copy()
+
+        # Вычисляем время закрытия каждой свечи
+        # Свеча с timestamp T закрывается в момент T + timeframe_delta
+        df_temp['close_time'] = df_temp['timestamp'] + timeframe_delta
+
+        # Находим все свечи которые ПОЛНОСТЬЮ ЗАКРЫЛИСЬ до execution_timestamp
+        # Свеча считается закрытой если close_time <= execution_timestamp
+        closed_candles = df_temp[df_temp['close_time'] <= execution_timestamp]
 
         if closed_candles.empty:
             return -1  # Нет закрытых свечей
 
         # Возвращаем индекс последней закрытой свечи
         return closed_candles.index[-1]
+
+    def _timeframe_to_timedelta(self, timeframe: str) -> pd.Timedelta:
+        """
+        Конвертирует строку таймфрейма в pandas Timedelta
+
+        Args:
+            timeframe: строка таймфрейма ('1m', '5m', '15m', '1h', etc.)
+
+        Returns:
+            pd.Timedelta объект
+
+        Raises:
+            ValueError: если таймфрейм не поддерживается
+        """
+        timeframe_map = {
+            '1m': pd.Timedelta(minutes=1),
+            '3m': pd.Timedelta(minutes=3),
+            '5m': pd.Timedelta(minutes=5),
+            '15m': pd.Timedelta(minutes=15),
+            '30m': pd.Timedelta(minutes=30),
+            '1h': pd.Timedelta(hours=1),
+            '2h': pd.Timedelta(hours=2),
+            '4h': pd.Timedelta(hours=4),
+            '6h': pd.Timedelta(hours=6),
+            '8h': pd.Timedelta(hours=8),
+            '12h': pd.Timedelta(hours=12),
+            '1d': pd.Timedelta(days=1),
+            '3d': pd.Timedelta(days=3),
+            '1w': pd.Timedelta(weeks=1),
+            '1M': pd.Timedelta(days=30)  # Приблизительно 30 дней
+        }
+
+        if timeframe not in timeframe_map:
+            raise ValueError(f"Неподдерживаемый таймфрейм: {timeframe}. "
+                           f"Доступные: {list(timeframe_map.keys())}")
+
+        return timeframe_map[timeframe]
 
     def load_dual_timeframe(self,
                            symbol: str,

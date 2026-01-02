@@ -846,11 +846,22 @@ def duplicate_config(config_id):
 
 def prepare_results_for_json(results):
     """Подготавливает результаты для JSON сериализации"""
+    import math
+
     def convert_for_json(obj):
         if hasattr(obj, 'isoformat'):  # datetime
             return obj.isoformat()
         elif hasattr(obj, 'item'):  # numpy types
-            return obj.item()
+            value = obj.item()
+            # Проверяем на Infinity/NaN после извлечения из numpy
+            if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
+                return None
+            return value
+        elif isinstance(obj, float):
+            # Заменяем Infinity и NaN на null для корректной JSON сериализации
+            if math.isinf(obj) or math.isnan(obj):
+                return None
+            return obj
         elif isinstance(obj, dict):
             return {key: convert_for_json(value) for key, value in obj.items()}
         elif isinstance(obj, list):
