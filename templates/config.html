@@ -952,8 +952,6 @@ async function downloadDataFromApi() {
     const useCustom = document.getElementById('useCustomDateRange').checked;
 
     try {
-        showNotification('Загрузка данных...', 'info');
-
         const requestData = {
             exchange: exchange,
             symbol: symbol,
@@ -982,15 +980,17 @@ async function downloadDataFromApi() {
             },
             body: JSON.stringify(requestData)
         });
-        
+
         const result = await response.json();
-        
-        if (result.success) {
-            showNotification(`Данные загружены: ${result.filename}`, 'success');
-            // Обновляем список CSV файлов
-            updateCsvFileList(result.filename);
-        } else {
+
+        if (result.task_id) {
+            // Асинхронная загрузка - отслеживаем прогресс
+            showNotification(`Загрузка данных запущена: ${exchange} ${symbol}`, 'info');
+            trackDownloadProgress(result.task_id);
+        } else if (result.error) {
             showNotification(`Ошибка: ${result.error}`, 'error');
+        } else {
+            showNotification('Неизвестная ошибка при запуске загрузки', 'error');
         }
     } catch (error) {
         showNotification(`Ошибка загрузки: ${error.message}`, 'error');
@@ -1067,6 +1067,51 @@ async function updateCsvFileList(filename = null) {
     } catch (error) {
         console.error('Ошибка обновления списка CSV файлов:', error);
     }
+}
+
+// Отслеживание прогресса загрузки данных
+let downloadProgressInterval = null;
+
+function trackDownloadProgress(taskId) {
+    if (!taskId) return;
+
+    // Очищаем предыдущий интервал если был
+    if (downloadProgressInterval) {
+        clearInterval(downloadProgressInterval);
+    }
+
+    downloadProgressInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/download-status/${taskId}`);
+            const status = await response.json();
+
+            if (status.error && status.error === 'Задача не найдена') {
+                clearInterval(downloadProgressInterval);
+                showNotification('Задача загрузки не найдена', 'error');
+                return;
+            }
+
+            // Обновляем уведомление о прогрессе
+            if (status.status === 'running') {
+                // Можно показать прогресс, если нужно
+                console.log(`Прогресс загрузки: ${status.progress}%`);
+            }
+
+            if (status.status === 'completed') {
+                clearInterval(downloadProgressInterval);
+                showNotification(`Данные загружены: ${status.filename} (${status.records_count} записей)`, 'success');
+                // Обновляем список CSV файлов
+                await updateCsvFileList(status.filename);
+            } else if (status.status === 'error') {
+                clearInterval(downloadProgressInterval);
+                showNotification(`Ошибка загрузки: ${status.error}`, 'error');
+            }
+        } catch (error) {
+            console.error('Ошибка отслеживания прогресса загрузки:', error);
+            clearInterval(downloadProgressInterval);
+            showNotification('Ошибка отслеживания загрузки', 'error');
+        }
+    }, 2000); // Проверяем каждые 2 секунды
 }
 
 // Обработчики для автоматического обновления символа

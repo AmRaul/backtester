@@ -27,6 +27,34 @@
             --border: #e2e8f0;
             --text: #334155;
             --text-light: #64748b;
+
+            /* Light theme */
+            --bg-main: #f8fafc;
+            --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            --card-bg: #ffffff;
+            --navbar-bg: rgba(255, 255, 255, 0.95);
+        }
+
+        [data-theme="dark"] {
+            --primary: #818cf8;
+            --primary-dark: #6366f1;
+            --primary-light: #a5b4fc;
+            --secondary: #94a3b8;
+            --success: #34d399;
+            --danger: #f87171;
+            --warning: #fbbf24;
+            --info: #22d3ee;
+            --dark: #e2e8f0;
+            --light: #1e293b;
+            --border: #334155;
+            --text: #e2e8f0;
+            --text-light: #cbd5e1;
+
+            /* Dark theme */
+            --bg-main: #0f172a;
+            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            --card-bg: #1e293b;
+            --navbar-bg: rgba(30, 41, 59, 0.95);
         }
 
         * {
@@ -36,18 +64,20 @@
         }
 
         body {
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            background: var(--bg-gradient);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             color: var(--text);
             line-height: 1.6;
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         /* Navbar */
         .navbar {
-            background: rgba(255, 255, 255, 0.95) !important;
+            background: var(--navbar-bg) !important;
             backdrop-filter: blur(10px);
             border-bottom: 1px solid var(--border);
             padding: 1rem 0;
+            transition: background 0.3s ease, border-color 0.3s ease;
         }
 
         .navbar-brand {
@@ -78,7 +108,7 @@
         .card {
             border: 1px solid var(--border);
             border-radius: 16px;
-            background: white;
+            background: var(--card-bg);
             transition: all 0.3s ease;
             overflow: hidden;
         }
@@ -89,7 +119,7 @@
         }
 
         .card-header {
-            background: white;
+            background: var(--card-bg);
             border-bottom: 1px solid var(--border);
             padding: 1.25rem 1.5rem;
             font-weight: 600;
@@ -652,7 +682,7 @@
                 
                 <ul class="navbar-nav">
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" 
+                        <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button"
                            data-bs-toggle="dropdown">
                             <i class="fas fa-tools me-1"></i>Инструменты
                         </a>
@@ -664,6 +694,11 @@
                                 <i class="fas fa-download me-2"></i>Загрузка данных
                             </a></li>
                         </ul>
+                    </li>
+                    <li class="nav-item">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleTheme()" title="Toggle Dark Mode">
+                            <i id="theme-icon" class="fas fa-moon"></i>
+                        </button>
                     </li>
                 </ul>
             </div>
@@ -772,8 +807,35 @@
             // Implementation for showing data download modal
             showToast('Функция в разработке', 'info');
         }
+
+        // Theme Toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+
+            // Update icon
+            updateThemeIcon(newTheme);
+        }
+
+        function updateThemeIcon(theme) {
+            const icon = document.getElementById('theme-icon');
+            if (icon) {
+                icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+            }
+        }
+
+        // Load saved theme on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeIcon(savedTheme);
+        });
     </script>
-    
+
     {% block extra_js %}{% endblock %}
 </body>
 </html> 

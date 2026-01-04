@@ -296,6 +296,7 @@
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -407,6 +408,7 @@ function renderConfigs(configs) {
                                     <li><a class="dropdown-item" href="#" onclick="duplicateConfig(${config.id})">
                                         <i class="fas fa-copy me-2"></i>Дублировать
                                     </a></li>
+                                    <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item text-danger" href="#" onclick="deleteConfig(${config.id})">
                                         <i class="fas fa-trash me-2"></i>Удалить
                                     </a></li>

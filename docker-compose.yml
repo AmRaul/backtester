@@ -69,6 +69,9 @@ services:
       - ./optimization_config_example.json:/app/optimization_config_example.json
       - ./optimization_config_with_indicators.json:/app/optimization_config_with_indicators.json
       - ./optimization_config_no_indicators.json:/app/optimization_config_no_indicators.json
+      - ./test_manual_indicators.py:/app/test_manual_indicators.py
+      - ./test_indicators_dual_timeframe.py:/app/test_indicators_dual_timeframe.py
+      - ./dual_timeframe_with_indicators.json:/app/dual_timeframe_with_indicators.json
     environment:
       - PYTHONUNBUFFERED=1
       - FLASK_ENV=production

@@ -1,0 +1,74 @@
+{
+  "comment": "TEST CONFIG: Dual timeframe (1m/15m) with RSI indicator",
+
+  "symbol": "BTC/USDT",
+  "timeframe": "15m",
+  "execution_timeframe": "1m",
+  "start_balance": 10000,
+  "leverage": 1,
+  "order_type": "long",
+  "commission_rate": 0.0004,
+
+  "calc_on_order_fills": true,
+  "max_entries_per_bar": 3,
+
+  "data_source": {
+    "type": "api",
+    "api": {
+      "exchange": "binance",
+      "symbol": "BTC/USDT",
+      "market_type": "spot",
+      "auto_save": true
+    }
+  },
+
+  "entry_conditions": {
+    "trigger_type": "indicator"
+  },
+
+  "first_order": {
+    "type": "percent",
+    "percent_of_balance": 10
+  },
+
+  "dca": {
+    "enabled": false
+  },
+
+  "take_profit": {
+    "enabled": true,
+    "target_percent": 2.0,
+    "trailing": false
+  },
+
+  "stop_loss": {
+    "enabled": true,
+    "target_percent": 5.0,
+    "trailing": false
+  },
+
+  "risk_management": {
+    "max_drawdown_percent": 50,
+    "max_open_positions": 1
+  },
+
+  "indicators": {
+    "enabled": true,
+    "strategy_type": "trend_momentum",
+    "trend_momentum": {
+      "ema_short": 50,
+      "ema_long": 200,
+      "rsi_period": 14,
+      "rsi_oversold": 30,
+      "rsi_overbought": 70
+    },
+    "conditions": [
+      {
+        "comment": "RSI < 30 and EMA50 > EMA200 for LONG entry",
+        "indicator": "rsi",
+        "operator": "less_than",
+        "value": 30
+      }
+    ]
+  }
+}

@@ -69,6 +69,9 @@ class Backtester:
         execution_timeframe = self.config.get('execution_timeframe')
         strategy_timeframe = self.config.get('timeframe', '15m')
 
+        # Сохраняем strategy_timeframe как атрибут класса для использования в run()
+        self.strategy_timeframe = strategy_timeframe
+
         if execution_timeframe and execution_timeframe != strategy_timeframe:
             # DUAL TIMEFRAME MODE
             self.use_dual_timeframe = True
@@ -267,7 +270,7 @@ class Backtester:
                 parent_idx = self.data_loader.get_parent_candle_index(
                     current_timestamp,
                     strategy_data,
-                    strategy_timeframe  # Новый параметр для избежания look-ahead bias
+                    self.strategy_timeframe  # Новый параметр для избежания look-ahead bias
                 )
 
                 # Пропускаем пока не накопим достаточно strategy данных

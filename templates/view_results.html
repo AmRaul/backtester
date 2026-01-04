@@ -37,7 +37,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h5 class="card-title text-primary">
-                    {{ "%.2f"|format(results.get('basic_stats', {}).get('total_return', 0)) }}%
+                    {{ "%.2f"|format(results.get('basic_stats', {}).get('total_return') | default(0, true)) }}%
                 </h5>
                 <p class="card-text small">Общая доходность</p>
             </div>
@@ -47,7 +47,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h5 class="card-title text-success">
-                    {{ "%.2f"|format(results.get('basic_stats', {}).get('win_rate', 0)) }}%
+                    {{ "%.2f"|format(results.get('basic_stats', {}).get('win_rate') | default(0, true)) }}%
                 </h5>
                 <p class="card-text small">Винрейт</p>
             </div>
@@ -67,7 +67,7 @@
         <div class="card text-center">
             <div class="card-body">
                 <h5 class="card-title text-warning">
-                    {{ "%.2f"|format(results.get('advanced_metrics', {}).get('max_drawdown_percent', 0)) }}%
+                    {{ "%.2f"|format(results.get('advanced_metrics', {}).get('max_drawdown_percent') | default(0, true)) }}%
                 </h5>
                 <p class="card-text small">Макс. просадка</p>
             </div>
@@ -136,7 +136,7 @@
                             </tr>
                             <tr>
                                 <td>Начальный баланс:</td>
-                                <td class="text-end">${{ "%.2f"|format(config.get('start_balance', 0)) }}</td>
+                                <td class="text-end">${{ "%.2f"|format(config.get('start_balance') | default(0, true)) }}</td>
                             </tr>
                             <tr>
                                 <td>Плечо:</td>
@@ -144,7 +144,7 @@
                             </tr>
                             <tr>
                                 <td>Комиссия:</td>
-                                <td class="text-end">{{ "%.2f"|format(config.get('fee_percent', 0.04)) }}%</td>
+                                <td class="text-end">{{ "%.2f"|format(config.get('fee_percent') | default(0.04, true)) }}%</td>
                             </tr>
                         </table>
                     </div>
@@ -320,23 +320,23 @@
                 <table class="table table-sm">
                     <tr>
                         <td>Начальный баланс:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.get('config', {}).get('start_balance', 0)) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.get('config', {}).get('start_balance') | default(0, true)) }}</td>
                     </tr>
                     <tr>
                         <td>Финальный баланс:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('current_balance', 0)) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('current_balance') | default(0, true)) }}</td>
                     </tr>
                     <tr>
                         <td>Общая прибыль:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('total_pnl', 0)) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('total_pnl') | default(0, true)) }}</td>
                     </tr>
                     <tr>
                         <td>Средняя прибыль:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('average_profit', 0)) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('average_profit') | default(0, true)) }}</td>
                     </tr>
                     <tr>
                         <td>Средний убыток:</td>
-                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('average_loss', 0)) }}</td>
+                        <td class="text-end">${{ "%.2f"|format(results.basic_stats.get('average_loss') | default(0, true)) }}</td>
                     </tr>
                     {% endif %}
                 </table>
@@ -357,19 +357,19 @@
                 <table class="table table-sm">
                     <tr>
                         <td>Sharpe Ratio:</td>
-                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('sharpe_ratio', 0)) }}</td>
+                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('sharpe_ratio') | default(0, true)) }}</td>
                     </tr>
                     <tr>
                         <td>Profit Factor:</td>
-                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('profit_factor', 0)) }}</td>
+                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('profit_factor') | default(0, true)) }}</td>
                     </tr>
                     <tr>
                         <td>Max Drawdown:</td>
-                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('max_drawdown_percent', 0)) }}%</td>
+                        <td class="text-end">{{ "%.2f"|format(results.advanced_metrics.get('max_drawdown_percent') | default(0, true)) }}%</td>
                     </tr>
                     <tr>
                         <td>Avg Trade Duration:</td>
-                        <td class="text-end">{{ "%.1f"|format(results.advanced_metrics.get('avg_trade_duration_hours', 0)) }}h</td>
+                        <td class="text-end">{{ "%.1f"|format(results.advanced_metrics.get('avg_trade_duration_hours') | default(0, true)) }}h</td>
                     </tr>
                     <tr>
                         <td>Max Consecutive Wins:</td>
@@ -438,14 +438,14 @@
                                         <span class="badge bg-danger">Short</span>
                                     {% endif %}
                                 </td>
-                                <td>${{ "%.2f"|format(entry_price) }}</td>
-                                <td>${{ "%.2f"|format(exit_price) }}</td>
-                                <td>{{ "%.4f"|format(volume) }}</td>
+                                <td>${{ "%.2f"|format(entry_price | default(0, true)) }}</td>
+                                <td>${{ "%.2f"|format(exit_price | default(0, true)) }}</td>
+                                <td>{{ "%.4f"|format(volume | default(0, true)) }}</td>
                                 <td class="{% if pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
-                                    ${{ "%.2f"|format(pnl) }}
+                                    ${{ "%.2f"|format(pnl | default(0, true)) }}
                                 </td>
                                 <td class="{% if pnl >= 0 %}text-success{% else %}text-danger{% endif %}">
-                                    {{ "%.2f"|format(pnl_percent) }}%
+                                    {{ "%.2f"|format(pnl_percent | default(0, true)) }}%
                                 </td>
                                 <td>
                                     <small>{{ entry_time if entry_time and entry_time is string else '-' }}</small>
@@ -513,6 +513,7 @@
         </div>
     </div>
 </div>
+
 {% endblock %}
 
 {% block extra_js %}

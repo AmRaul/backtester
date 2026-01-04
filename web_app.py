@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 # Глобальные переменные для отслеживания задач
 running_backtests = {}
 backtest_results = {}
+data_downloads = {}
 
 # Helper functions
 def get_csv_files_list():
@@ -117,6 +118,17 @@ class BacktestTask:
         self.error = None
         self.start_time = datetime.now()
 
+class DataDownloadTask:
+    def __init__(self, task_id, params):
+        self.task_id = task_id
+        self.params = params
+        self.status = 'pending'
+        self.progress = 0
+        self.filename = None
+        self.records_count = 0
+        self.error = None
+        self.start_time = datetime.now()
+
 def run_backtest_async(task_id, config):
     """Запускает бэктест в отдельном потоке"""
     task = running_backtests[task_id]
@@ -149,6 +161,76 @@ def run_backtest_async(task_id, config):
         task.error = str(e)
         task.status = 'error'
         print(f"Ошибка в бэктесте {task_id}: {e}")
+
+def download_data_async(task_id, params):
+    """Загружает данные с биржи в отдельном потоке"""
+    task = data_downloads[task_id]
+
+    try:
+        task.status = 'running'
+        task.progress = 10
+
+        exchange = params.get('exchange', 'binance')
+        symbol = params.get('symbol', 'BTC/USDT')
+        timeframe = params.get('timeframe', '1h')
+        market_type = params.get('market_type', 'spot')
+        start_date = params.get('start_date')
+        end_date = params.get('end_date')
+        period = params.get('period')
+
+        # Если указан период, рассчитываем даты
+        if period and not (start_date and end_date):
+            from datetime import datetime, timedelta
+            end_date_obj = datetime.now()
+
+            period_days = {
+                '1m': 30,
+                '3m': 90,
+                '6m': 180,
+                '1y': 365,
+                'all': None
+            }
+
+            days = period_days.get(period)
+            if days:
+                start_date_obj = end_date_obj - timedelta(days=days)
+                start_date = start_date_obj.strftime('%Y-%m-%d')
+                end_date = end_date_obj.strftime('%Y-%m-%d')
+            else:
+                start_date = None
+                end_date = None
+
+        task.progress = 20
+
+        loader = DataLoader()
+
+        # Загружаем данные
+        task.progress = 30
+        data = loader.load_from_api(
+            symbol=symbol,
+            timeframe=timeframe,
+            start_date=start_date,
+            end_date=end_date,
+            exchange=exchange,
+            market_type=market_type
+        )
+
+        task.progress = 80
+
+        # Сохраняем в CSV
+        filename = loader.save_to_csv()
+
+        task.filename = filename
+        task.records_count = len(data)
+        task.status = 'completed'
+        task.progress = 100
+
+        print(f"[DOWNLOAD] Данные загружены: {filename}, записей: {len(data)}")
+
+    except Exception as e:
+        task.error = str(e)
+        task.status = 'error'
+        print(f"Ошибка при загрузке данных {task_id}: {e}")
 
 def save_backtest_to_db(task_id, config, results):
     """Сохраняет результаты бэктеста в базу данных (PostgreSQL)"""
@@ -341,65 +423,29 @@ def get_backtest_results(task_id):
 
 @app.route('/api/download-data', methods=['POST'])
 def download_data():
-    """API для загрузки данных с биржи"""
+    """API для загрузки данных с биржи (асинхронно)"""
     try:
         params = request.json
 
-        exchange = params.get('exchange', 'binance')
-        symbol = params.get('symbol', 'BTC/USDT')
-        timeframe = params.get('timeframe', '1h')
-        market_type = params.get('market_type', 'spot')
+        if not params:
+            return jsonify({'error': 'Не предоставлены параметры'}), 400
 
-        # Обработка периода или кастомных дат
-        start_date = params.get('start_date')
-        end_date = params.get('end_date')
-        period = params.get('period')
+        # Генерируем уникальный ID задачи
+        task_id = str(uuid.uuid4())
 
-        # Если указан период, рассчитываем даты
-        if period and not (start_date and end_date):
-            from datetime import datetime, timedelta
-            end_date_obj = datetime.now()
+        # Создаем задачу
+        task = DataDownloadTask(task_id, params)
+        data_downloads[task_id] = task
 
-            period_days = {
-                '1m': 30,
-                '3m': 90,
-                '6m': 180,
-                '1y': 365,
-                'all': None  # Для "все время" не указываем start_date
-            }
-
-            days = period_days.get(period)
-            if days:
-                start_date_obj = end_date_obj - timedelta(days=days)
-                start_date = start_date_obj.strftime('%Y-%m-%d')
-                end_date = end_date_obj.strftime('%Y-%m-%d')
-            else:
-                # Для "all" не передаем start_date
-                start_date = None
-                end_date = None
-
-        loader = DataLoader()
-
-        # Загружаем данные
-        data = loader.load_from_api(
-            symbol=symbol,
-            timeframe=timeframe,
-            start_date=start_date,
-            end_date=end_date,
-            exchange=exchange,
-            market_type=market_type
-        )
-
-        # Сохраняем в CSV
-        filename = loader.save_to_csv()
+        # Запускаем в отдельном потоке
+        thread = threading.Thread(target=download_data_async, args=(task_id, params))
+        thread.daemon = True
+        thread.start()
 
         return jsonify({
-            'success': True,
-            'message': f'Данные загружены и сохранены в {filename}',
-            'filename': filename,
-            'records_count': len(data),
-            'market_type': market_type,
-            'period': period if period else 'custom'
+            'task_id': task_id,
+            'status': 'started',
+            'message': 'Загрузка данных запущена'
         })
 
     except Exception as e:
@@ -466,6 +512,30 @@ def get_current_price():
         print(f"[PRICE API ERROR] Ошибка получения цены:")
         print(error_trace)
         return jsonify({'error': str(e), 'trace': error_trace if app.debug else None}), 500
+
+@app.route('/api/download-status/<task_id>')
+def get_download_status(task_id):
+    """API для получения статуса загрузки данных"""
+    if task_id not in data_downloads:
+        return jsonify({'error': 'Задача не найдена'}), 404
+
+    task = data_downloads[task_id]
+
+    response = {
+        'task_id': task_id,
+        'status': task.status,
+        'progress': task.progress,
+        'start_time': task.start_time.isoformat()
+    }
+
+    if task.error:
+        response['error'] = task.error
+
+    if task.status == 'completed':
+        response['filename'] = task.filename
+        response['records_count'] = task.records_count
+
+    return jsonify(response)
 
 @app.route('/results')
 def results_page():
@@ -1005,19 +1075,54 @@ def get_visualization(task_id):
 
         # Получаем OHLCV данные если есть
         data = None
-        if 'data_summary' in results and results['data_summary']:
-            # Пытаемся восстановить данные из конфига
+
+        # ПРИОРИТЕТ 1: Используем сохраненные данные из результатов
+        if 'ohlcv_data' in results and results['ohlcv_data']:
+            try:
+                data = pd.DataFrame(results['ohlcv_data'])
+                # Конвертируем timestamp обратно в datetime
+                data['timestamp'] = pd.to_datetime(data['timestamp'])
+                print(f"[DEBUG VISUALIZATION] Загружено {len(data)} свечей из ohlcv_data")
+            except Exception as e:
+                print(f"Ошибка конвертации ohlcv_data в DataFrame: {e}")
+
+        # ПРИОРИТЕТ 2: Fallback - загружаем из файла если данных нет
+        if data is None and 'data_summary' in results and results['data_summary']:
             config = results.get('config', {})
             data_source = config.get('data_source', {})
+            source_type = data_source.get('type', 'csv')
 
-            if data_source.get('type') == 'csv':
+            print(f"[DEBUG VISUALIZATION] Загрузка данных из файла, source_type={source_type}")
+
+            if source_type == 'csv':
+                # Single timeframe CSV
                 file_path = data_source.get('file')
                 if file_path and os.path.exists(file_path):
                     try:
                         loader = DataLoader()
                         data = loader.load_from_csv(file_path, config.get('symbol'))
                     except Exception as e:
-                        print(f"Ошибка загрузки данных для визуализации: {e}")
+                        print(f"Ошибка загрузки CSV данных: {e}")
+
+            elif source_type == 'csv_dual':
+                # Dual timeframe CSV - загружаем EXECUTION файл (низкий таймфрейм)
+                execution_file = data_source.get('execution_file')
+                if execution_file and os.path.exists(execution_file):
+                    try:
+                        loader = DataLoader()
+                        data = loader.load_from_csv(execution_file, config.get('symbol'))
+                        print(f"[DEBUG VISUALIZATION] Загружен execution CSV: {execution_file}")
+                    except Exception as e:
+                        print(f"Ошибка загрузки dual CSV данных: {e}")
+                else:
+                    print(f"[WARNING] Execution CSV файл не найден: {execution_file}")
+
+            elif source_type == 'api':
+                # API источник - данные должны быть в ohlcv_data
+                print(f"[WARNING] API источник без ohlcv_data - данные недоступны для визуализации")
+
+        if data is None:
+            print(f"[ERROR VISUALIZATION] Данные не загружены. ohlcv_data: {bool(results.get('ohlcv_data'))}, data_summary: {bool(results.get('data_summary'))}")
 
         # Создаем визуализатор
         viz = BacktestVisualizer(results, data)
