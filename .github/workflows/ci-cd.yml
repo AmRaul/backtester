@@ -218,6 +218,42 @@ jobs:
             echo "📦 Current image version:"
             docker images ghcr.io/${REPO_LOWERCASE}-web:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}" || echo "No local image found"
 
+            # Создаём pre-deployment бэкап базы данных ПЕРЕД обновлением
+            echo "🔒 Creating pre-deployment backup..."
+            BACKUP_DIR="/opt/backtester/backups"
+            BACKUP_FILE="$BACKUP_DIR/pre_deploy_$(date +%Y%m%d_%H%M%S).sql.gz"
+            LAST_GOOD_BACKUP=""
+
+            mkdir -p "$BACKUP_DIR"
+
+            # Проверяем что контейнер postgres запущен
+            if docker ps --format '{{.Names}}' | grep -q "backtester_postgres_prod"; then
+              docker exec backtester_postgres_prod pg_dump -U ${{ secrets.DB_USER }} -d backtester --clean --if-exists 2>/dev/null | gzip > "$BACKUP_FILE"
+
+              if [ $? -eq 0 ]; then
+                BACKUP_SIZE_BYTES=$(stat -c%s "$BACKUP_FILE" 2>/dev/null || stat -f%z "$BACKUP_FILE")
+                BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+                echo "✅ Pre-deployment backup created: $BACKUP_FILE ($BACKUP_SIZE)"
+
+                # Проверяем размер бекапа - если < 5KB, это подозрительно
+                if [ "$BACKUP_SIZE_BYTES" -lt 5120 ]; then
+                  echo "⚠️  WARNING: Backup size is suspiciously small ($BACKUP_SIZE)"
+                  echo "⚠️  Database may be empty or corrupted!"
+
+                  # Ищем последний "хороший" бекап (> 5KB)
+                  LAST_GOOD_BACKUP=$(find "$BACKUP_DIR" -name "*.sql.gz" -type f -size +5k -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+                  if [ -n "$LAST_GOOD_BACKUP" ]; then
+                    GOOD_BACKUP_SIZE=$(du -h "$LAST_GOOD_BACKUP" | cut -f1)
+                    echo "📦 Found last good backup: $(basename $LAST_GOOD_BACKUP) ($GOOD_BACKUP_SIZE)"
+                  fi
+                fi
+              else
+                echo "⚠️  Backup failed, but continuing deployment..."
+              fi
+            else
+              echo "⚠️  PostgreSQL container not running, skipping backup..."
+            fi
+
             # Обновляем и запускаем основное приложение
             echo "🚀 Deploying backtester..."
             export GITHUB_REPOSITORY=$REPO_LOWERCASE
@@ -235,8 +271,13 @@ jobs:
             docker images ghcr.io/${REPO_LOWERCASE}-analytics:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"
             docker images ghcr.io/${REPO_LOWERCASE}-bot:latest --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}"
 
-            echo "🔄 Recreating all containers..."
-            docker compose -f docker-compose.prod.yml up -d --force-recreate
+            echo "🔄 Updating containers (preserving volumes)..."
+            docker compose -f docker-compose.prod.yml up -d --no-recreate --remove-orphans
+
+            if [ $? -ne 0 ]; then
+              echo "⚠️  --no-recreate failed, trying with minimal recreation..."
+              docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            fi
 
             if [ $? -ne 0 ]; then
               echo "❌ Failed to start containers"
@@ -247,23 +288,11 @@ jobs:
             echo "⏳ Waiting for PostgreSQL to be ready..."
             sleep 10
 
-            # Создаём pre-deployment бэкап базы данных
-            echo "🔒 Creating pre-deployment backup..."
-            BACKUP_DIR="/opt/backtester/backups"
-            BACKUP_FILE="$BACKUP_DIR/pre_deploy_$(date +%Y%m%d_%H%M%S).sql.gz"
-
-            mkdir -p "$BACKUP_DIR"
-
-            docker exec backtester_postgres_prod pg_dump -U ${{ secrets.DB_USER }} -d backtester --clean --if-exists | gzip > "$BACKUP_FILE"
-
-            if [ $? -eq 0 ]; then
-              BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
-              echo "✅ Pre-deployment backup created: $BACKUP_FILE ($BACKUP_SIZE)"
-
-              # Удаляем старые pre-deployment бэкапы (старше 7 дней)
-              find "$BACKUP_DIR" -name "pre_deploy_*.sql.gz" -type f -mtime +7 -delete 2>/dev/null || true
+            # Удаляем старые pre-deployment бэкапы (старше 7 дней), НО сохраняем последний хороший
+            if [ -n "$LAST_GOOD_BACKUP" ]; then
+              find "$BACKUP_DIR" -name "pre_deploy_*.sql.gz" -type f -mtime +7 ! -path "$LAST_GOOD_BACKUP" -delete 2>/dev/null || true
             else
-              echo "⚠️  Backup failed, but continuing deployment..."
+              find "$BACKUP_DIR" -name "pre_deploy_*.sql.gz" -type f -mtime +7 -delete 2>/dev/null || true
             fi
 
             # Применяем все SQL миграции из папки migrations/
@@ -289,6 +318,42 @@ jobs:
             done
 
             echo "📊 Migration summary: $MIGRATION_COUNT successful, $FAILED_COUNT failed/skipped"
+
+            # Проверяем что схема backtester существует
+            echo "🔍 Verifying database schema..."
+            SCHEMA_EXISTS=$(docker exec backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester -tAc "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'backtester');" 2>/dev/null || echo "f")
+
+            if [ "$SCHEMA_EXISTS" = "t" ]; then
+              echo "✅ Schema 'backtester' exists"
+
+              # Проверяем что есть таблицы
+              TABLE_COUNT=$(docker exec backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'backtester';" 2>/dev/null || echo "0")
+              echo "📊 Found $TABLE_COUNT tables in schema 'backtester'"
+            else
+              echo "❌ ERROR: Schema 'backtester' does not exist!"
+              echo "🔧 Attempting to restore from backup..."
+
+              # Пробуем восстановить из последнего хорошего бекапа
+              if [ -n "$LAST_GOOD_BACKUP" ] && [ -f "$LAST_GOOD_BACKUP" ]; then
+                echo "📦 Restoring from: $(basename $LAST_GOOD_BACKUP)"
+                gunzip -c "$LAST_GOOD_BACKUP" | docker exec -i backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester 2>&1 | tail -10
+
+                # Проверяем снова
+                SCHEMA_EXISTS=$(docker exec backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester -tAc "SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = 'backtester');" 2>/dev/null || echo "f")
+
+                if [ "$SCHEMA_EXISTS" = "t" ]; then
+                  echo "✅ Schema restored successfully!"
+                else
+                  echo "❌ Restore failed. Trying to apply init-db.sql manually..."
+                  docker exec backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester -c "CREATE SCHEMA IF NOT EXISTS backtester AUTHORIZATION ${{ secrets.DB_USER }};"
+                  docker exec -i backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester < /opt/backtester/init-db.sql 2>&1 | tail -10
+                fi
+              else
+                echo "⚠️  No good backup found. Creating schema manually..."
+                docker exec backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester -c "CREATE SCHEMA IF NOT EXISTS backtester AUTHORIZATION ${{ secrets.DB_USER }};"
+                docker exec -i backtester_postgres_prod psql -U ${{ secrets.DB_USER }} -d backtester < /opt/backtester/init-db.sql 2>&1 | tail -10
+              fi
+            fi
 
             # Устанавливаем Nginx конфигурацию (только если ещё не установлена)
             if [ ! -f /etc/nginx/sites-enabled/backtester.conf ]; then
