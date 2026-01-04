@@ -1161,11 +1161,15 @@ def get_visualization(task_id):
 
         print(f"[DEBUG VISUALIZATION] JSON serialization complete")
 
+        # Получаем периоды EMA для отображения в UI
+        ema_short, ema_long = viz.get_ema_periods()
+
         return jsonify({
             'success': True,
             'graph_json': graph_json,
             'task_id': task_id,
-            'chart_type': chart_type
+            'chart_type': chart_type,
+            'ema_periods': [ema_short, ema_long]
         })
 
     except Exception as e:

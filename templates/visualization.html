@@ -53,8 +53,8 @@
             <div class="ms-3 d-inline-block">
                 <div class="form-check form-switch d-inline-block me-3">
                     <input class="form-check-input" type="checkbox" id="showEmaCheck">
-                    <label class="form-check-label" for="showEmaCheck">
-                        <i class="fas fa-chart-line me-1"></i>Показать EMA (50, 200)
+                    <label class="form-check-label" for="showEmaCheck" id="emaCheckLabel">
+                        <i class="fas fa-chart-line me-1"></i>Показать EMA...
                     </label>
                 </div>
                 <div class="form-check form-switch d-inline-block">
@@ -132,6 +132,7 @@
 <script>
     const taskId = '{{ task_id }}';
     let currentChartType = 'all';
+    let emaPeriods = [50, 200]; // Дефолтные периоды EMA
 
     // Функция обновления отладочной информации
     function updateDebug(text) {
@@ -235,6 +236,17 @@
                 });
 
                 updateDebug('📊 Данные получены, обработка...');
+
+                // Обновляем периоды EMA если получены от сервера
+                if (data.ema_periods && data.ema_periods.length === 2) {
+                    emaPeriods = data.ema_periods;
+                    // Обновляем текст лейбла чекбокса
+                    const emaLabel = document.getElementById('emaCheckLabel');
+                    if (emaLabel) {
+                        emaLabel.innerHTML = `<i class="fas fa-chart-line me-1"></i>Показать EMA (${emaPeriods[0]}, ${emaPeriods[1]})`;
+                    }
+                    console.log('[Visualization] EMA периоды обновлены:', emaPeriods);
+                }
 
                 // Скрываем индикатор загрузки
                 document.getElementById('loading-indicator').style.display = 'none';

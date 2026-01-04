@@ -276,14 +276,16 @@
                             {% endif %}
                         </table>
 
-                        {% if config.get('indicators') %}
+                        {% if config.get('indicators', {}).get('selected_indicators') %}
                         <h6 class="text-muted mb-3 mt-3">Индикаторы</h6>
                         <table class="table table-sm">
-                            {% for indicator, params in config.get('indicators', {}).items() %}
-                            <tr>
-                                <td>{{ indicator|upper }}:</td>
-                                <td class="text-end"><span class="badge bg-primary">✓</span></td>
-                            </tr>
+                            {% for indicator, is_selected in config.get('indicators', {}).get('selected_indicators', {}).items() %}
+                                {% if is_selected %}
+                                <tr>
+                                    <td>{{ indicator|upper|replace('_', ' ') }}:</td>
+                                    <td class="text-end"><span class="badge bg-primary">✓</span></td>
+                                </tr>
+                                {% endif %}
                             {% endfor %}
                         </table>
                         {% endif %}

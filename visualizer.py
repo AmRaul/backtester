@@ -174,24 +174,28 @@ class BacktestVisualizer:
         )
 
         # Добавляем EMA линии если есть
-        if self.indicators_data and 'ema_50' in self.indicators_data:
+        ema_short, ema_long = self.get_ema_periods()
+        ema_short_key = f'ema_{ema_short}'
+        ema_long_key = f'ema_{ema_long}'
+
+        if self.indicators_data and ema_short_key in self.indicators_data:
             fig.add_trace(
                 go.Scatter(
                     x=self.data['timestamp'],
-                    y=self.indicators_data['ema_50'],
-                    name='EMA 50',
+                    y=self.indicators_data[ema_short_key],
+                    name=f'EMA {ema_short}',
                     line=dict(color='#FFA726', width=2),
                     mode='lines'
                 ),
                 row=1, col=1
             )
 
-        if self.indicators_data and 'ema_200' in self.indicators_data:
+        if self.indicators_data and ema_long_key in self.indicators_data:
             fig.add_trace(
                 go.Scatter(
                     x=self.data['timestamp'],
-                    y=self.indicators_data['ema_200'],
-                    name='EMA 200',
+                    y=self.indicators_data[ema_long_key],
+                    name=f'EMA {ema_long}',
                     line=dict(color='#42A5F5', width=2),
                     mode='lines'
                 ),
@@ -268,20 +272,24 @@ class BacktestVisualizer:
         ))
 
         # Добавляем EMA линии
-        if self.indicators_data and 'ema_50' in self.indicators_data:
+        ema_short, ema_long = self.get_ema_periods()
+        ema_short_key = f'ema_{ema_short}'
+        ema_long_key = f'ema_{ema_long}'
+
+        if self.indicators_data and ema_short_key in self.indicators_data:
             fig.add_trace(go.Scatter(
                 x=self.data['timestamp'],
-                y=self.indicators_data['ema_50'],
-                name='EMA 50',
+                y=self.indicators_data[ema_short_key],
+                name=f'EMA {ema_short}',
                 line=dict(color='#FFA726', width=2),
                 opacity=0.8
             ))
 
-        if self.indicators_data and 'ema_200' in self.indicators_data:
+        if self.indicators_data and ema_long_key in self.indicators_data:
             fig.add_trace(go.Scatter(
                 x=self.data['timestamp'],
-                y=self.indicators_data['ema_200'],
-                name='EMA 200',
+                y=self.indicators_data[ema_long_key],
+                name=f'EMA {ema_long}',
                 line=dict(color='#42A5F5', width=2),
                 opacity=0.8
             ))
@@ -374,6 +382,27 @@ class BacktestVisualizer:
         print(f"[DEBUG] _plot_with_rsi_only завершен. Traces: {len(fig.data)}")
         return fig
 
+    def get_ema_periods(self):
+        """
+        Извлекает периоды EMA из конфигурации стратегии
+
+        Returns:
+            tuple: (ema_short, ema_long) - периоды EMA
+        """
+        indicators_config = self.config.get('indicators', {})
+
+        if indicators_config.get('enabled', False):
+            strategy_type = indicators_config.get('strategy_type')
+
+            if strategy_type == 'trend_momentum':
+                config = indicators_config.get('trend_momentum', {})
+                ema_short = config.get('ema_short', 50)
+                ema_long = config.get('ema_long', 200)
+                return (ema_short, ema_long)
+
+        # Дефолтные значения
+        return (50, 200)
+
     def _calculate_indicators(self):
         """Вычисляет индикаторы на основе конфигурации стратегии или дефолтные для визуализации"""
         if self.data is None or self.data.empty:
@@ -398,10 +427,11 @@ class BacktestVisualizer:
                     ema_long = config.get('ema_long', 200)
                     rsi_period = config.get('rsi_period', 14)
 
-                    self.indicators_data['ema_50'] = ti.calculate_ema(
+                    # Используем динамические ключи для EMA
+                    self.indicators_data[f'ema_{ema_short}'] = ti.calculate_ema(
                         self.data['close'], ema_short
                     )
-                    self.indicators_data['ema_200'] = ti.calculate_ema(
+                    self.indicators_data[f'ema_{ema_long}'] = ti.calculate_ema(
                         self.data['close'], ema_long
                     )
                     self.indicators_data['rsi'] = ti.calculate_rsi(
@@ -436,10 +466,11 @@ class BacktestVisualizer:
                     return
 
             # Если индикаторы не включены в стратегии, используем дефолтные для визуализации
-            # EMA 50, EMA 200, RSI 14
-            print("[DEBUG] Используем дефолтные индикаторы для визуализации (EMA 50, 200, RSI 14)")
-            self.indicators_data['ema_50'] = ti.calculate_ema(self.data['close'], 50)
-            self.indicators_data['ema_200'] = ti.calculate_ema(self.data['close'], 200)
+            # Получаем периоды EMA (дефолтные будут 50, 200)
+            ema_short, ema_long = self.get_ema_periods()
+            print(f"[DEBUG] Используем дефолтные индикаторы для визуализации (EMA {ema_short}, {ema_long}, RSI 14)")
+            self.indicators_data[f'ema_{ema_short}'] = ti.calculate_ema(self.data['close'], ema_short)
+            self.indicators_data[f'ema_{ema_long}'] = ti.calculate_ema(self.data['close'], ema_long)
             self.indicators_data['rsi'] = ti.calculate_rsi(self.data['close'], 14)
 
         except ImportError:
