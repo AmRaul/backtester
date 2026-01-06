@@ -90,30 +90,58 @@ class TechnicalIndicators:
             
         return result
     
-    def calculate_atr(self, high: pd.Series, low: pd.Series, close: pd.Series, 
+    def calculate_atr(self, high: pd.Series, low: pd.Series, close: pd.Series,
                      period: int = 14, cache_key: str = None) -> pd.Series:
         """
         Вычисляет Average True Range (ATR)
-        
+
         Args:
             high: серия максимальных цен
             low: серия минимальных цен
             close: серия цен закрытия
             period: период ATR
             cache_key: ключ для кэширования (опционально)
-            
+
         Returns:
             pd.Series с ATR значениями
         """
         if cache_key and cache_key in self.cache:
             return self.cache[cache_key]
-        
+
         atr = ta.volatility.AverageTrueRange(high=high, low=low, close=close, window=period).average_true_range()
-        
+
         if cache_key:
             self.cache[cache_key] = atr
-            
+
         return atr
+
+    def calculate_adx(self, high: pd.Series, low: pd.Series, close: pd.Series,
+                     period: int = 14, cache_key: str = None) -> pd.Series:
+        """
+        Вычисляет Average Directional Index (ADX)
+        Измеряет силу тренда (не направление) от 0 до 100
+        ADX > 25 = сильный тренд, ADX < 25 = слабый тренд/флет
+
+        Args:
+            high: серия максимальных цен
+            low: серия минимальных цен
+            close: серия цен закрытия
+            period: период ADX (по умолчанию 14)
+            cache_key: ключ для кэширования (опционально)
+
+        Returns:
+            pd.Series с ADX значениями (0-100)
+        """
+        if cache_key and cache_key in self.cache:
+            return self.cache[cache_key]
+
+        adx_indicator = ta.trend.ADXIndicator(high=high, low=low, close=close, window=period)
+        adx = adx_indicator.adx()
+
+        if cache_key:
+            self.cache[cache_key] = adx
+
+        return adx
     
     def calculate_supertrend(self, high: pd.Series, low: pd.Series, close: pd.Series,
                            period: int = 10, multiplier: float = 3, cache_key: str = None) -> Tuple[pd.Series, pd.Series]:
@@ -324,10 +352,10 @@ class IndicatorStrategy:
         # Определяем тренд
         trend_up = ema_50_current > ema_200_current
         trend_down = ema_50_current < ema_200_current
-        
-        # Определяем сигналы (более мягкие условия)
-        long_signal = trend_up and rsi_current < 40  # Мягче чем 30
-        short_signal = trend_down and rsi_current > 60  # Мягче чем 70
+
+        # Определяем сигналы (используем настройки из конфига)
+        long_signal = trend_up and rsi_current < rsi_oversold
+        short_signal = trend_down and rsi_current > rsi_overbought
         
         # Отладочная информация (закомментирована чтобы не спамить)
         # print(f"DEBUG: EMA50={ema_50_current:.2f}, EMA200={ema_200_current:.2f}, RSI={rsi_current:.2f}")
@@ -471,7 +499,9 @@ class IndicatorStrategy:
         st_mult = config.get('supertrend_multiplier', 3)
         stoch_k = config.get('stoch_rsi_k', 14)
         stoch_d = config.get('stoch_rsi_d', 3)
-        
+        stoch_oversold_level = config.get('stoch_oversold_level', 20)
+        stoch_overbought_level = config.get('stoch_overbought_level', 80)
+
         # Вычисляем индикаторы (БЕЗ кэширования для корректной работы в бэктесте)
         supertrend, direction = self.indicators.calculate_supertrend(
             data['high'], data['low'], data['close'], st_period, st_mult,
@@ -529,15 +559,15 @@ class IndicatorStrategy:
         direction_current = direction.iloc[-1]
         stoch_k_current = stoch_k_percent.iloc[-1]
         stoch_d_current = stoch_d_percent.iloc[-1]
-        
+
         # Проверяем направление SuperTrend
         trend_up = direction_current == 1
         trend_down = direction_current == -1
-        
-        # Проверяем Stochastic RSI
-        stoch_oversold = stoch_k_current < 20
-        stoch_overbought = stoch_k_current > 80
-        
+
+        # Проверяем Stochastic RSI (используем настройки из конфига)
+        stoch_oversold = stoch_k_current < stoch_oversold_level
+        stoch_overbought = stoch_k_current > stoch_overbought_level
+
         # Определяем сигналы
         long_signal = trend_up and stoch_oversold
         short_signal = trend_down and stoch_overbought
@@ -590,21 +620,45 @@ class IndicatorStrategy:
         # EMA - трендовый фильтр
         if selected.get('ema', False):
             ema_config = config.get('ema', {})
-            ema_short_period = ema_config.get('short_period', 50)
-            ema_long_period = ema_config.get('long_period', 200)
 
-            ema_short = self.indicators.calculate_ema(data['close'], ema_short_period, cache_key=None)
-            ema_long = self.indicators.calculate_ema(data['close'], ema_long_period, cache_key=None)
+            # Поддержка двух режимов: сравнение двух EMA или цены с одной EMA
+            use_price_comparison = ema_config.get('use_price_comparison', False)
 
-            if len(ema_short) > 0 and len(ema_long) > 0 and not pd.isna(ema_short.iloc[-1]) and not pd.isna(ema_long.iloc[-1]):
-                trend_up = ema_short.iloc[-1] > ema_long.iloc[-1]
-                trend_down = ema_short.iloc[-1] < ema_long.iloc[-1]
+            if use_price_comparison:
+                # Режим: price vs EMA
+                ema_period = ema_config.get('period', 200)
+                ema = self.indicators.calculate_ema(data['close'], ema_period, cache_key=None)
 
-                long_conditions.append(trend_up)
-                short_conditions.append(trend_down)
+                if len(ema) > 0 and not pd.isna(ema.iloc[-1]):
+                    current_price = data['close'].iloc[-1]
+                    ema_value = ema.iloc[-1]
 
-                result['indicators']['ema_short'] = ema_short.iloc[-1]
-                result['indicators']['ema_long'] = ema_long.iloc[-1]
+                    # Для LONG: цена выше EMA, для SHORT: цена ниже EMA
+                    price_above_ema = current_price > ema_value
+                    price_below_ema = current_price < ema_value
+
+                    long_conditions.append(price_above_ema)
+                    short_conditions.append(price_below_ema)
+
+                    result['indicators']['ema'] = ema_value
+                    result['indicators']['price'] = current_price
+            else:
+                # Режим: EMA short vs EMA long (старая логика)
+                ema_short_period = ema_config.get('short_period', 50)
+                ema_long_period = ema_config.get('long_period', 200)
+
+                ema_short = self.indicators.calculate_ema(data['close'], ema_short_period, cache_key=None)
+                ema_long = self.indicators.calculate_ema(data['close'], ema_long_period, cache_key=None)
+
+                if len(ema_short) > 0 and len(ema_long) > 0 and not pd.isna(ema_short.iloc[-1]) and not pd.isna(ema_long.iloc[-1]):
+                    trend_up = ema_short.iloc[-1] > ema_long.iloc[-1]
+                    trend_down = ema_short.iloc[-1] < ema_long.iloc[-1]
+
+                    long_conditions.append(trend_up)
+                    short_conditions.append(trend_down)
+
+                    result['indicators']['ema_short'] = ema_short.iloc[-1]
+                    result['indicators']['ema_long'] = ema_long.iloc[-1]
 
         # RSI - моментум индикатор
         if selected.get('rsi', False):
@@ -613,16 +667,51 @@ class IndicatorStrategy:
             rsi_oversold = rsi_config.get('oversold', 30)
             rsi_overbought = rsi_config.get('overbought', 70)
 
+            # Поддержка crossover detection
+            use_crossover = rsi_config.get('use_crossover', False)
+            crossover_level_long = rsi_config.get('crossover_level_long', 38)
+            crossover_level_short = rsi_config.get('crossover_level_short', 62)
+
             rsi = self.indicators.calculate_rsi(data['close'], rsi_period, cache_key=None)
 
             if len(rsi) > 0 and not pd.isna(rsi.iloc[-1]):
                 rsi_current = rsi.iloc[-1]
 
-                # Более мягкие условия для RSI
-                long_conditions.append(rsi_current < 40)
-                short_conditions.append(rsi_current > 60)
+                if use_crossover:
+                    # Режим crossover: RSI пересекает уровень
+                    # Для LONG: RSI[-2] < level и RSI[-1] >= level (пересечение вверх)
+                    # Для SHORT: RSI[-2] > level и RSI[-1] <= level (пересечение вниз)
 
-                result['indicators']['rsi'] = rsi_current
+                    if len(rsi) >= 2 and not pd.isna(rsi.iloc[-2]):
+                        rsi_prev = rsi.iloc[-2]
+
+                        # LONG: RSI был <= level, теперь выше (пересечение вверх)
+                        rsi_cross_up = (rsi_prev <= crossover_level_long) and (rsi_current > crossover_level_long)
+
+                        # SHORT: RSI был >= level, теперь ниже (пересечение вниз)
+                        rsi_cross_down = (rsi_prev >= crossover_level_short) and (rsi_current < crossover_level_short)
+
+                        # Дополнительное условие: RSI должен быть в зоне
+                        rsi_in_long_zone = rsi_current <= crossover_level_long + 10  # Небольшой допуск
+                        rsi_in_short_zone = rsi_current >= crossover_level_short - 10
+
+                        long_conditions.append(rsi_cross_up and rsi_in_long_zone)
+                        short_conditions.append(rsi_cross_down and rsi_in_short_zone)
+
+                        result['indicators']['rsi'] = rsi_current
+                        result['indicators']['rsi_prev'] = rsi_prev
+                        result['indicators']['rsi_cross_up'] = rsi_cross_up
+                        result['indicators']['rsi_cross_down'] = rsi_cross_down
+                    else:
+                        # Недостаточно данных для crossover
+                        long_conditions.append(False)
+                        short_conditions.append(False)
+                        result['indicators']['rsi'] = rsi_current
+                else:
+                    # Режим обычной проверки уровня (старая логика)
+                    long_conditions.append(rsi_current < rsi_oversold)
+                    short_conditions.append(rsi_current > rsi_overbought)
+                    result['indicators']['rsi'] = rsi_current
 
         # Bollinger Bands - волатильность
         if selected.get('bollinger_bands', False):
@@ -698,20 +787,48 @@ class IndicatorStrategy:
             stoch_k = stoch_config.get('k_period', 14)
             stoch_d = stoch_config.get('d_period', 3)
             stoch_rsi_period = stoch_config.get('rsi_period', 14)
+            stoch_oversold_level = stoch_config.get('oversold_level', 20)
+            stoch_overbought_level = stoch_config.get('overbought_level', 80)
 
             stoch_k_percent, stoch_d_percent = self.indicators.calculate_stochastic_rsi(
                 data['close'], stoch_k, stoch_d, stoch_rsi_period, cache_key=None
             )
 
             if len(stoch_k_percent) > 0 and not pd.isna(stoch_k_percent.iloc[-1]):
-                stoch_oversold = stoch_k_percent.iloc[-1] < 20
-                stoch_overbought = stoch_k_percent.iloc[-1] > 80
+                stoch_oversold = stoch_k_percent.iloc[-1] < stoch_oversold_level
+                stoch_overbought = stoch_k_percent.iloc[-1] > stoch_overbought_level
 
                 long_conditions.append(stoch_oversold)
                 short_conditions.append(stoch_overbought)
 
                 result['indicators']['stoch_k'] = stoch_k_percent.iloc[-1]
                 result['indicators']['stoch_d'] = stoch_d_percent.iloc[-1]
+
+        # ADX - индикатор силы тренда
+        if selected.get('adx', False):
+            adx_config = config.get('adx', {})
+            adx_period = adx_config.get('period', 14)
+            adx_max_value = adx_config.get('max_value', 25)  # ADX <= 25 означает слабый тренд/флет
+
+            adx = self.indicators.calculate_adx(
+                data['high'], data['low'], data['close'], adx_period, cache_key=None
+            )
+
+            if len(adx) > 0 and not pd.isna(adx.iloc[-1]):
+                adx_current = adx.iloc[-1]
+
+                # ADX используется как фильтр: низкий ADX (слабый тренд) хорош для mean reversion
+                # высокий ADX (сильный тренд) хорош для trend following
+                # Для стратегии пользователя: ADX <= max_value (например 25)
+                adx_below_threshold = adx_current <= adx_max_value
+
+                # ADX не генерирует сигналы сам по себе, он фильтрует
+                # Добавляем условие для обоих направлений
+                long_conditions.append(adx_below_threshold)
+                short_conditions.append(adx_below_threshold)
+
+                result['indicators']['adx'] = adx_current
+                result['indicators']['adx_threshold'] = adx_max_value
 
         # Определяем финальные сигналы
         # Требуем, чтобы ВСЕ выбранные индикаторы давали согласованный сигнал

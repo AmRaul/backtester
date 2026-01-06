@@ -392,6 +392,15 @@ class BacktestVisualizer:
         indicators_config = self.config.get('indicators', {})
 
         if indicators_config.get('enabled', False):
+            # Проверяем кастомный режим (приоритет)
+            if 'selected_indicators' in indicators_config:
+                # Кастомный режим - берем настройки из ema секции
+                ema_config = indicators_config.get('ema', {})
+                ema_short = ema_config.get('short_period', 50)
+                ema_long = ema_config.get('long_period', 200)
+                return (ema_short, ema_long)
+
+            # Предустановленные стратегии
             strategy_type = indicators_config.get('strategy_type')
 
             if strategy_type == 'trend_momentum':
@@ -418,7 +427,69 @@ class BacktestVisualizer:
             indicators_config = self.config.get('indicators', {})
 
             if indicators_config.get('enabled', False):
-                # Используем параметры из конфигурации стратегии
+                # Проверяем кастомный режим (приоритет)
+                if 'selected_indicators' in indicators_config:
+                    selected = indicators_config.get('selected_indicators', {})
+
+                    # EMA
+                    if selected.get('ema', False):
+                        ema_config = indicators_config.get('ema', {})
+                        ema_short = ema_config.get('short_period', 50)
+                        ema_long = ema_config.get('long_period', 200)
+                        self.indicators_data[f'ema_{ema_short}'] = ti.calculate_ema(
+                            self.data['close'], ema_short
+                        )
+                        self.indicators_data[f'ema_{ema_long}'] = ti.calculate_ema(
+                            self.data['close'], ema_long
+                        )
+
+                    # RSI
+                    if selected.get('rsi', False):
+                        rsi_config = indicators_config.get('rsi', {})
+                        rsi_period = rsi_config.get('period', 14)
+                        self.indicators_data['rsi'] = ti.calculate_rsi(
+                            self.data['close'], rsi_period
+                        )
+
+                    # Bollinger Bands
+                    if selected.get('bollinger_bands', False):
+                        bb_config = indicators_config.get('bollinger_bands', {})
+                        bb_period = bb_config.get('period', 20)
+                        bb_std = bb_config.get('std_dev', 2)
+                        bb_upper, bb_middle, bb_lower = ti.calculate_bollinger_bands(
+                            self.data['close'], bb_period, bb_std
+                        )
+                        self.indicators_data['bb_upper'] = bb_upper
+                        self.indicators_data['bb_middle'] = bb_middle
+                        self.indicators_data['bb_lower'] = bb_lower
+
+                    # SuperTrend
+                    if selected.get('supertrend', False):
+                        st_config = indicators_config.get('supertrend', {})
+                        st_period = st_config.get('period', 10)
+                        st_mult = st_config.get('multiplier', 3)
+                        supertrend, direction = ti.calculate_supertrend(
+                            self.data['high'], self.data['low'], self.data['close'],
+                            st_period, st_mult
+                        )
+                        self.indicators_data['supertrend'] = supertrend
+                        self.indicators_data['direction'] = direction
+
+                    # Stochastic RSI
+                    if selected.get('stochastic_rsi', False):
+                        stoch_config = indicators_config.get('stochastic_rsi', {})
+                        stoch_k = stoch_config.get('k_period', 14)
+                        stoch_d = stoch_config.get('d_period', 3)
+                        stoch_rsi_period = stoch_config.get('rsi_period', 14)
+                        stoch_k_percent, stoch_d_percent = ti.calculate_stochastic_rsi(
+                            self.data['close'], stoch_k, stoch_d, stoch_rsi_period
+                        )
+                        self.indicators_data['stoch_k'] = stoch_k_percent
+                        self.indicators_data['stoch_d'] = stoch_d_percent
+
+                    return  # Выходим после обработки кастомных индикаторов
+
+                # Используем параметры из предустановленных стратегий
                 strategy_type = indicators_config.get('strategy_type')
 
                 if strategy_type == 'trend_momentum':

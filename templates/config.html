@@ -345,6 +345,22 @@
                                             </div>
                                         </div>
                                     </div>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="stochRSIOversold" class="form-label">Уровень перепроданности</label>
+                                                <input type="number" class="form-control" id="stochRSIOversold" value="20" min="10" max="40">
+                                                <small class="text-muted">Порог для покупки (обычно 20)</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label for="stochRSIOverbought" class="form-label">Уровень перекупленности</label>
+                                                <input type="number" class="form-control" id="stochRSIOverbought" value="80" min="60" max="90">
+                                                <small class="text-muted">Порог для продажи (обычно 80)</small>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -1170,7 +1186,9 @@ async function runBacktest() {
                     stochastic_rsi: {
                         k_period: parseInt(document.getElementById('stochRSIK')?.value || 14),
                         d_period: parseInt(document.getElementById('stochRSID')?.value || 3),
-                        rsi_period: parseInt(document.getElementById('stochRSIPeriod')?.value || 14)
+                        rsi_period: parseInt(document.getElementById('stochRSIPeriod')?.value || 14),
+                        oversold_level: parseInt(document.getElementById('stochRSIOversold')?.value || 20),
+                        overbought_level: parseInt(document.getElementById('stochRSIOverbought')?.value || 80)
                     }
                 },
                 entry_conditions: {
